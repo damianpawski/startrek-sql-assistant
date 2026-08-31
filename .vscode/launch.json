@@ -1,0 +1,53 @@
+{
+  // Two ways to debug this app. Prefer the first.
+  //
+  // The container and the host differ only in how the app reaches its two
+  // dependencies, and both are published to the host anyway (dab -> :5000,
+  // Ollama -> :11434). appsettings.json already points at localhost for both,
+  // so running the app on the host debugs the same code against the same
+  // stack, with full breakpoints and no vsdbg plumbing.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Requires: docker compose up -d dab   (brings up sqlserver + dab too)
+      // Leave the containerised blazor-app running or stop it - this listens
+      // on 5080, so it will not collide with the container's 8080.
+      "name": "Blazor app (host) - full debugging",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/StarTrekSqlAssistant.Web/bin/Debug/net10.0/StarTrekSqlAssistant.Web.dll",
+      "cwd": "${workspaceFolder}/src/StarTrekSqlAssistant.Web",
+      "stopAtEntry": false,
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5080"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+      }
+    },
+    {
+      // Attaches to the running container. Needs vsdbg copied into the
+      // container first, and the image is a Release build, so locals may be
+      // optimised away and breakpoints can bind to unexpected lines. Use it
+      // to inspect a problem that only reproduces in Docker, not for
+      // day-to-day work.
+      "name": "Attach to blazor-app container (Release)",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "1",
+      "pipeTransport": {
+        "pipeProgram": "docker",
+        "pipeArgs": ["exec", "-i", "startrek-sql-assistant-blazor-app-1"],
+        "debuggerPath": "/vsdbg/vsdbg",
+        "pipeCwd": "${workspaceFolder}",
+        "quoteArgs": false
+      },
+      "sourceFileMap": {
+        "/src": "${workspaceFolder}/src/StarTrekSqlAssistant.Web"
+      }
+    }
+  ]
+}

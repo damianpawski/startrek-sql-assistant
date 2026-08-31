@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# Secrets / local machine config
+# ---------------------------------------------------------------------------
+.env
+.env.local
+*.env.local
+
+# ASP.NET local overrides (appsettings.json itself IS committed — it holds the
+# localhost:5000/mcp + localhost:11434 defaults the run-on-host mode relies on)
+**/appsettings.*.local.json
+**/secrets.json
+
+# ---------------------------------------------------------------------------
+# .NET build output  (NOT anchored with a leading "/" — these must match at
+# every depth, e.g. src/StarTrekSqlAssistant.Web/bin)
+# ---------------------------------------------------------------------------
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]og/
+[Ll]ogs/
+publish/
+[Pp]ublish[Oo]utput/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.binlog
+*.log
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+.nuget/
+
+# ---------------------------------------------------------------------------
+# IDE / editor state
+# ---------------------------------------------------------------------------
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.userprefs
+*.sln.docstates
+*.pubxml.user
+
+# VS Code: ignore per-developer state, keep sharable workspace config
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+# ---------------------------------------------------------------------------
+# OS cruft
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# ---------------------------------------------------------------------------
+# Intentionally not published (project decision, not build output).
+# Delete a line here to start tracking that file.
+# ---------------------------------------------------------------------------
+/CLAUDE.md

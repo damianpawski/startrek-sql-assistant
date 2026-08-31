@@ -1,0 +1,101 @@
+name: startrek-sql-assistant
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd}"
+      MSSQL_PID: Developer
+    # Host-side port only — everything inside the Compose network still talks
+    # to sqlserver:1433. Override MSSQL_HOST_PORT if 1433 is taken on the host.
+    ports:
+      - "${MSSQL_HOST_PORT:-1433}:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    # -S 127.0.0.1, not localhost: localhost resolves to ::1 first inside the
+    # container, and ODBC Driver 18 fails there rather than falling back to
+    # IPv4, so the probe never succeeds no matter how long it waits.
+    #
+    # The probe checks that every database is ONLINE, not just that master
+    # answers. SQL Server accepts connections before it has finished recovering
+    # user databases, so a bare "SELECT 1" reports healthy too early: on any
+    # restart where the sqlserver-data volume already holds StarTrek, sql-init
+    # then races recovery and dies with "Msg 904 ... Database 5 cannot be
+    # autostarted during server shutdown or startup". RAISERROR + -b makes
+    # sqlcmd exit non-zero so the healthcheck simply retries until recovery is
+    # done. A fresh volume has nothing to recover, which is why this race stays
+    # invisible until the second run.
+    healthcheck:
+      test: >-
+        /opt/mssql-tools18/bin/sqlcmd -C -S 127.0.0.1 -U sa
+        -P "$${MSSQL_SA_PASSWORD}" -b -o /dev/null
+        -Q "SET NOCOUNT ON; IF EXISTS (SELECT 1 FROM sys.databases WHERE state_desc <> N'ONLINE') RAISERROR('databases still recovering', 16, 1); SELECT 1;"
+      interval: 10s
+      timeout: 15s
+      retries: 10
+      start_period: 30s
+
+  # One-shot: creates the StarTrek database and loads schema + data, then exits.
+  # -b matters: without it sqlcmd exits 0 even when the script errored, so a
+  # failed load looks like success and you get an empty database instead.
+  # init.sql drops and recreates everything, so re-running it is safe.
+  sql-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - ./db-init:/scripts:ro
+    entrypoint:
+      - /opt/mssql-tools18/bin/sqlcmd
+      - -C
+      - -S
+      - sqlserver
+      - -U
+      - sa
+      - -P
+      - "${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd}"
+      - -b
+      - -i
+      - /scripts/init.sql
+    restart: "no"
+
+  # Data API builder's SQL MCP Server: turns the entities in dab-config.json
+  # into REST, GraphQL, and MCP tools. No app code, just this container.
+  dab:
+    image: mcr.microsoft.com/azure-databases/data-api-builder:latest
+    depends_on:
+      sql-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_CONNECTION_STRING: >-
+        Server=sqlserver,1433;Database=StarTrek;User ID=sa;
+        Password=${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd};
+        TrustServerCertificate=True;Encrypt=True;
+    volumes:
+      - ./dab/dab-config.json:/App/dab-config.json:ro
+    ports:
+      - "5000:5000"
+
+  # The model runtime is NOT containerized: this talks to the Ollama you have
+  # installed natively on the host, which keeps GPU acceleration and avoids a
+  # second multi-GB copy of the model. host.docker.internal resolves to the
+  # host from inside the container (extra_hosts makes that work on plain
+  # Docker Engine too, not just Docker Desktop).
+  blazor-app:
+    build:
+      context: ./src/StarTrekSqlAssistant.Web
+    depends_on:
+      - dab
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      Dab__McpEndpoint: "http://dab:5000/mcp"
+      Ollama__Endpoint: "${OLLAMA_ENDPOINT:-http://host.docker.internal:11434}"
+      Ollama__Model: "${OLLAMA_MODEL:-qwen3:8b}"
+    ports:
+      - "8080:8080"
+
+volumes:
+  sqlserver-data:

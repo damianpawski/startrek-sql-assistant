@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/StarTrekSqlAssistant.Web/StarTrekSqlAssistant.Web.csproj" />
+  </Folder>
+</Solution>

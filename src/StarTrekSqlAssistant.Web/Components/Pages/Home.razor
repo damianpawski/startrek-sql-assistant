@@ -1,0 +1,157 @@
+@page "/"
+@inject StarTrekAgentService Agent
+@inject IJSRuntime JS
+
+<div class="chat">
+    <header class="chat-header">
+        <h1>Star Trek SQL Assistant</h1>
+        <p>Ask about any series, episode, movie, or home-media release. Answers come from a live SQL Server query, not the model's memory.</p>
+    </header>
+
+    <div class="chat-log" @ref="_logRef">
+        @foreach (var message in _messages.Where(m => m.Role != ChatRole.System))
+        {
+            <div class="bubble-row @(message.Role == ChatRole.User ? "from-user" : "from-assistant")">
+                <div class="bubble">
+                    <span class="bubble-label">@(message.Role == ChatRole.User ? "You" : "Assistant")</span>
+                    <p>@message.Text</p>
+                </div>
+            </div>
+        }
+
+        @if (_isThinking)
+        {
+            <div class="bubble-row from-assistant">
+                <div class="bubble bubble-thinking">
+                    <span class="bubble-label">Assistant</span>
+                    <p><span class="dot"></span><span class="dot"></span><span class="dot"></span></p>
+                </div>
+            </div>
+        }
+
+        @if (_messages.Count(m => m.Role == ChatRole.User) == 0 && !_isThinking)
+        {
+            <div class="capabilities">
+                <p class="capabilities-intro">
+                    The database covers <strong>what aired and what shipped on disc</strong>:
+                    15 series, 971 episodes, 14 feature films, and their home-media releases.
+                    Pick a question to try it.
+                </p>
+
+                <div class="capability-grid">
+                    @foreach (var topic in Topics)
+                    {
+                        <section class="capability-card">
+                            <h2>@topic.Title</h2>
+                            <p class="capability-fields">@topic.Fields</p>
+                            <div class="capability-questions">
+                                @foreach (var question in topic.Questions)
+                                {
+                                    <button type="button" class="sample-chip" @onclick="() => SendAsync(question)">@question</button>
+                                }
+                            </div>
+                        </section>
+                    }
+                </div>
+
+                <p class="capabilities-limits">
+                    <strong>Not in this database:</strong> characters and cast (so no "who is the captain of
+                    the Enterprise"), plot summaries, writers and directors, ratings or viewing figures.
+                    Ask for those and the assistant should tell you it can't find them rather than answer
+                    from the model's own memory.
+                </p>
+            </div>
+        }
+    </div>
+
+    <form class="chat-input" @onsubmit="() => SendAsync(_input)" @onsubmit:preventDefault="true">
+        <input @bind="_input"
+               @bind:event="oninput"
+               placeholder="e.g. How many episodes of Deep Space Nine are there?"
+               disabled="@_isThinking"
+               autofocus />
+        <button type="submit" disabled="@(_isThinking || string.IsNullOrWhiteSpace(_input))">
+            Ask
+        </button>
+    </form>
+</div>
+
+@code {
+    private List<ChatMessage> _messages = StarTrekAgentService.CreateConversation();
+    private string _input = "";
+    private bool _isThinking;
+    private bool _shouldScroll;
+    private ElementReference _logRef;
+
+    /// <summary>One card on the empty-state panel: an entity the model can query,
+    /// the columns it holds, and questions that are answerable from those columns.</summary>
+    private sealed record Topic(string Title, string Fields, string[] Questions);
+
+    /// <summary>
+    /// Mirrors the entities in dab/dab-config.json - these are the only things the
+    /// model can look up. Keep in sync when an entity is added or renamed.
+    /// </summary>
+    private static readonly Topic[] Topics =
+    [
+        new("Series",
+            "Title, first air date, last air date.",
+            [
+                "When did Deep Space Nine start and end?",
+                "List every Star Trek series in order of first air date.",
+                "Which series ran for the most years?",
+            ]),
+
+        new("Episodes",
+            "Title, season, episode number, air date, remastered air date, production code, stardate.",
+            [
+                "How many episodes of The Next Generation are there?",
+                "What was the first episode of Voyager?",
+                "List the season 1 episodes of Strange New Worlds.",
+            ]),
+
+        new("Movies",
+            "Title, theatrical release date, stardate. Not linked to a series.",
+            [
+                "List the Star Trek movies released after 2000, newest first.",
+                "How many Star Trek movies are in the database?",
+            ]),
+
+        new("Home media",
+            "DVD, remastered DVD, HD DVD and Blu-ray sets per series and season, the discs in each set, and which episodes are on which disc.",
+            [
+                "What home-media formats were released for The Original Series?",
+                "How many discs are in the Next Generation season 3 Blu-ray set?",
+            ]),
+    ];
+
+    private async Task SendAsync(string question)
+    {
+        question = question.Trim();
+        if (question.Length == 0 || _isThinking)
+        {
+            return;
+        }
+
+        _input = "";
+        _messages.Add(new ChatMessage(ChatRole.User, question));
+        _isThinking = true;
+        _shouldScroll = true;
+        StateHasChanged();
+
+        var reply = await Agent.AskAsync(_messages);
+
+        _messages.Add(new ChatMessage(ChatRole.Assistant, reply));
+        _isThinking = false;
+        _shouldScroll = true;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldScroll)
+        {
+            _shouldScroll = false;
+            await JS.InvokeVoidAsync("startrekSqlAssistant.scrollToBottom", _logRef);
+        }
+    }
+}

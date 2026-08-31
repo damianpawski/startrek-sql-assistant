@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UserSecretsId>startrek-sql-assistant</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MCP client: connects to Data API builder's SQL MCP Server -->
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
+    <!-- IChatClient + FunctionInvokingChatClient (automatic tool-call loop) -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <!-- IChatClient implementation that talks to a local Ollama server -->
+    <PackageReference Include="OllamaSharp" Version="5.4.30" />
+  </ItemGroup>
+
+</Project>
