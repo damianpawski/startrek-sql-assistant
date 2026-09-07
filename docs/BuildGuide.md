@@ -93,7 +93,10 @@ SQLite and T-SQL (SQL Server's dialect) disagree on enough syntax that the
 original `schema.sql`/`data.sql` won't run as-is:
 
 - **Types.** SQLite's `TEXT`/`INTEGER`/`BOOLEAN` become `NVARCHAR(n)` / `INT`
-  / `BIT`. `DATETIME` becomes `DATETIME2(0)`.
+  / `BIT` — and `BIT` means the *data* has to become `1`/`0` too, since T-SQL
+  has no `True`/`False` literals. `DATETIME` becomes `DATETIME2(0)`, with one
+  exception: `episode.[date]` stays `NVARCHAR`, because those are in-universe
+  dates and a handful are month-precision only (`'2256-11'`).
 - **Primary keys.** SQLite's `INTEGER PRIMARY KEY` auto-increments
   implicitly. Since every table's data script supplies explicit ID values
   anyway, most tables just use a plain `INT NOT NULL PRIMARY KEY` — no
@@ -127,7 +130,7 @@ CREATE TABLE dbo.episode (
     episode_number       INT            NULL,
     production_code      NVARCHAR(20)   NULL,
     stardate             NVARCHAR(20)   NULL,
-    [date]               DATETIME2(0)   NULL,
+    [date]               NVARCHAR(20)   NULL,
     vignette             BIT            NULL
 );
 ```
@@ -435,9 +438,13 @@ The core logic lives in `Services/StarTrekAgentService.cs`. Stripped to its
 shape:
 
 ```csharp
-// 1. An Ollama-backed IChatClient, wrapped with automatic tool-calling.
-var ollama = new OllamaApiClient(new Uri(ollamaEndpoint), ollamaModel);
-var chatClient = new ChatClientBuilder(ollama)
+// 1. An IChatClient for whichever backend Model:Provider selects, wrapped
+//    with automatic tool-calling. ChatClientFactory holds all three cases:
+//      Ollama    -> new OllamaApiClient(http, model)
+//      OpenAI    -> new OpenAIClient(cred, opts).GetChatClient(model).AsIChatClient()
+//      Anthropic -> new AnthropicClient { ApiKey = ... }.AsIChatClient(model, maxTokens)
+//    Only this line differs between providers; everything after it is identical.
+var chatClient = new ChatClientBuilder(inner)
     .UseFunctionInvocation()
     .Build();
 
@@ -562,6 +569,12 @@ Real errors hit while building this, in case they recur:
 | Chat replies with "I can't reach the database connector yet" | DAB isn't reachable yet, or never started | Check `docker compose ps` (is `dab` `Up`? did `sql-init` `Exit(0)`?), then `docker compose logs dab` |
 | `docker compose ps` prints only headers, no rows | Run from a different folder than the one with `docker-compose.yml` | `cd` into the project folder first, or use `docker ps -a` which isn't folder-scoped |
 | SQL Server container won't become healthy / exits immediately | `MSSQL_SA_PASSWORD` doesn't meet complexity rules | Use 8+ characters spanning upper, lower, digit, and symbol |
+| SQL Server never becomes healthy, healthcheck log says `Health check exceeded timeout` | The probe used `-S localhost`. Inside the container that resolves to `::1` first, and ODBC Driver 18 fails there instead of falling back to IPv4 | Probe `-S 127.0.0.1`. No timeout increase helps — the `localhost` form never connects at all |
+| `dab` exits 255 with `Unable to launch the runtime due to: ... Authentication configuration not supported` | `runtime.host.authentication.provider: Simulator` is only valid when `runtime.host.mode` is `development` | Either set `mode: development`, or drop the `authentication` block entirely — every entity here is `anonymous`/`read`, so no provider is needed |
+| `sql-init` exits **0** but every table is empty | `sqlcmd` without `-b` returns success even when the script raised errors | Add `-b` to the `sql-init` entrypoint, then read `docker compose logs sql-init` for the real error |
+| `Invalid column name 'False'` during the data load | SQLite `True`/`False` literals survived the port; T-SQL `BIT` takes `1`/`0`, and a bare `True` parses as a column reference | Replace with `1`/`0`. Note the whole data section is a single batch (no `GO`), so this one compile error rolls back *every* insert — that's why the symptom is an entirely empty database, not one bad column |
+| `Conversion failed when converting date and/or time from character string` | `episode.[date]` was ported to `DATETIME2(0)`, but a few in-universe dates are month-precision (`'2256-11'`) and no SQL date type accepts them | Keep that column `NVARCHAR` — it's `TEXT` in the SQLite source for exactly this reason |
+| `Error converting data type nvarchar to numeric` on an `INSERT` | One multi-row `VALUES` column mixed bare numerics with a quoted non-numeric string (`stardate` `1739.12` alongside `N'2291.6, 58460.1'`). Type precedence resolves the column to numeric and the string row fails | Quote every value in that column so it resolves as `nvarchar` |
 
 ---
 

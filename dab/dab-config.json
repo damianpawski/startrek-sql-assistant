@@ -18,6 +18,7 @@
       "description": "Query a reference database covering the Star Trek franchise: every TV series, episode, and movie, plus their home-media (DVD/Blu-ray) releases. Use read_records or aggregate_records against Series, Episode, and Movie for most questions; join across series_id / media_set_id / medium_volume_id / episode_id to answer questions about releases."
     },
     "host": {
+      "mode": "development",
       "cors": {
         "origins": ["*"]
       }
@@ -28,6 +29,20 @@
       "source": { "object": "dbo.series", "type": "table" },
       "description": "Star Trek television series, one row per show, with the date each first and last aired.",
       "graphql": { "enabled": true, "type": { "singular": "Series", "plural": "AllSeries" } },
+      "relationships": {
+        "episodes": {
+          "cardinality": "many",
+          "target.entity": "Episode",
+          "source.fields": [ "series_id" ],
+          "target.fields": [ "series_id" ]
+        },
+        "mediaSets": {
+          "cardinality": "many",
+          "target.entity": "MediaSet",
+          "source.fields": [ "series_id" ],
+          "target.fields": [ "series_id" ]
+        }
+      },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]
@@ -36,6 +51,23 @@
       "source": { "object": "dbo.episode", "type": "table" },
       "description": "Individual episodes across every Star Trek series. series_id links to Series. Includes air date, remastered air date, season, episode number, production code, and stardate.",
       "graphql": { "enabled": true, "type": { "singular": "Episode", "plural": "Episodes" } },
+      "relationships": {
+        "series": {
+          "cardinality": "one",
+          "target.entity": "Series",
+          "source.fields": [ "series_id" ],
+          "target.fields": [ "series_id" ]
+        },
+        "mediumVolumes": {
+          "cardinality": "many",
+          "target.entity": "MediumVolume",
+          "source.fields": [ "episode_id" ],
+          "target.fields": [ "medium_volume_id" ],
+          "linking.object": "dbo.medium_volume_episode",
+          "linking.source.fields": [ "episode_id" ],
+          "linking.target.fields": [ "medium_volume_id" ]
+        }
+      },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]
@@ -52,6 +84,20 @@
       "source": { "object": "dbo.media_set", "type": "table" },
       "description": "A home-media release set (e.g. 'DVD', 'Blu-ray', 'HD DVD') for one series and season. series_id links to Series.",
       "graphql": { "enabled": true, "type": { "singular": "MediaSet", "plural": "MediaSets" } },
+      "relationships": {
+        "series": {
+          "cardinality": "one",
+          "target.entity": "Series",
+          "source.fields": [ "series_id" ],
+          "target.fields": [ "series_id" ]
+        },
+        "mediumVolumes": {
+          "cardinality": "many",
+          "target.entity": "MediumVolume",
+          "source.fields": [ "media_set_id" ],
+          "target.fields": [ "media_set_id" ]
+        }
+      },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]
@@ -60,6 +106,23 @@
       "source": { "object": "dbo.medium_volume", "type": "table" },
       "description": "A single disc within a MediaSet. media_set_id links to MediaSet; sequence is the disc number within the set.",
       "graphql": { "enabled": true, "type": { "singular": "MediumVolume", "plural": "MediumVolumes" } },
+      "relationships": {
+        "mediaSet": {
+          "cardinality": "one",
+          "target.entity": "MediaSet",
+          "source.fields": [ "media_set_id" ],
+          "target.fields": [ "media_set_id" ]
+        },
+        "episodes": {
+          "cardinality": "many",
+          "target.entity": "Episode",
+          "source.fields": [ "medium_volume_id" ],
+          "target.fields": [ "episode_id" ],
+          "linking.object": "dbo.medium_volume_episode",
+          "linking.source.fields": [ "medium_volume_id" ],
+          "linking.target.fields": [ "episode_id" ]
+        }
+      },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]
@@ -68,6 +131,20 @@
       "source": { "object": "dbo.medium_volume_episode", "type": "table" },
       "description": "Join table linking a MediumVolume (disc) to the episodes it contains, via medium_volume_id and episode_id.",
       "graphql": { "enabled": true, "type": { "singular": "MediumVolumeEpisode", "plural": "MediumVolumeEpisodes" } },
+      "relationships": {
+        "mediumVolume": {
+          "cardinality": "one",
+          "target.entity": "MediumVolume",
+          "source.fields": [ "medium_volume_id" ],
+          "target.fields": [ "medium_volume_id" ]
+        },
+        "episode": {
+          "cardinality": "one",
+          "target.entity": "Episode",
+          "source.fields": [ "episode_id" ],
+          "target.fields": [ "episode_id" ]
+        }
+      },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]

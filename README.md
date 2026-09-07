@@ -88,12 +88,45 @@ Server instead of SQLite.
 
 ## Swapping the model
 
-Any Ollama model that supports tool calling works — `ollama pull <model>` on
-the host, change `OLLAMA_MODEL` in `.env`, then `docker compose up -d` to
-recreate `blazor-app` with the new value. Smaller models are more likely to miss a tool call or misread a
-schema; if answers seem off, try a larger model or check the `blazor-app`
-logs (`docker compose logs -f blazor-app`) to see which tool it actually
-called.
+The app talks to its model through `IChatClient`, so the backend is a config
+switch — `MODEL_PROVIDER` in `.env` (`Ollama`, `OpenAI`, or `Anthropic`), or
+`Model__Provider` if you're running outside Docker. Only the selected
+provider's settings are read.
+
+**Local (default).** Any Ollama model that supports tool calling works —
+`ollama pull <model>` on the host, set `OLLAMA_MODEL` in `.env`, then
+`docker compose up -d` to recreate `blazor-app` with the new value.
+
+**Hosted.** Set the provider and its key:
+
+```bash
+MODEL_PROVIDER=Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-haiku-4-5     # or claude-sonnet-5, claude-opus-5
+```
+
+```bash
+MODEL_PROVIDER=OpenAI
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Running the app on the host instead of in Docker, the keys go in user-secrets
+rather than `.env`:
+
+```bash
+dotnet user-secrets set "Anthropic:ApiKey" "sk-ant-..."   --project src/StarTrekSqlAssistant.Web
+```
+
+A hosted provider with no key fails at startup with a message naming the
+setting, rather than breaking on the first question. Either way, the tool
+list, the tool-calling loop, and the UI are unchanged — only
+`Services/ChatClientFactory.cs` knows a vendor exists.
+
+Model choice matters more than it looks. Small local models tend to guess
+column names rather than look them up, and answer "the database doesn't have
+that field" when they guess wrong; check `docker compose logs -f blazor-app`
+to see which tool actually got called before blaming the data.
 
 ## Ideas for extending this
 

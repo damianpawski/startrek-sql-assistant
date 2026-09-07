@@ -1,13 +1,15 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Client;
-using OllamaSharp;
 
 namespace StarTrekSqlAssistant.Web.Services;
 
 /// <summary>
-/// Answers plain-English questions about the Star Trek database by handing an
-/// Ollama model the MCP tools exposed by Data API builder's SQL MCP Server.
+/// Answers plain-English questions about the Star Trek database by handing a
+/// model the MCP tools exposed by Data API builder's SQL MCP Server. Which
+/// model - a local one via Ollama, or OpenAI/Anthropic over their APIs - is a
+/// config choice resolved by ChatClientFactory; nothing below this constructor
+/// knows or cares which one answered.
 ///
 /// The model never sees or writes SQL. It picks a tool - read_records,
 /// aggregate_records, describe_entities, and so on - DAB turns that tool call
@@ -44,6 +46,7 @@ public sealed class StarTrekAgentService : IAsyncDisposable
         """;
 
     private readonly Uri _mcpEndpoint;
+    private readonly ChatBackend _backend;
     private readonly IChatClient _chatClient;
     private readonly ILogger<StarTrekAgentService> _logger;
     private readonly SemaphoreSlim _connectLock = new(1, 1);
@@ -53,17 +56,23 @@ public sealed class StarTrekAgentService : IAsyncDisposable
 
     public StarTrekAgentService(
         IOptions<DabOptions> dabOptions,
+        IOptions<ModelOptions> modelOptions,
         IOptions<OllamaOptions> ollamaOptions,
+        IOptions<OpenAIOptions> openAiOptions,
+        IOptions<AnthropicOptions> anthropicOptions,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<StarTrekAgentService>();
         _mcpEndpoint = new Uri(dabOptions.Value.McpEndpoint);
 
-        var ollama = new OllamaApiClient(new Uri(ollamaOptions.Value.Endpoint), ollamaOptions.Value.Model);
+        _backend = ChatClientFactory.Create(
+            modelOptions.Value,
+            ollamaOptions.Value,
+            openAiOptions.Value,
+            anthropicOptions.Value);
+        _chatClient = _backend.Client;
 
-        _chatClient = new ChatClientBuilder(ollama)
-            .UseFunctionInvocation()
-            .Build();
+        _logger.LogInformation("Chat backend: {Backend}", _backend.Description);
     }
 
     /// <summary>Starts a new conversation, seeded with the system prompt.</summary>
@@ -96,11 +105,21 @@ public sealed class StarTrekAgentService : IAsyncDisposable
             var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
             return response.Text;
         }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            // HttpClient surfaces its own timeout as TaskCanceledException. The
+            // when-clause keeps a real user/circuit cancellation out of here.
+            _logger.LogWarning(ex, "{Backend} did not answer within {Timeout}", _backend.Description, _backend.Timeout);
+            return $"That question took longer than {_backend.Timeout.TotalSeconds:N0} seconds and I gave up " +
+                   "waiting. A local thinking model on a small GPU can be slow - try a simpler question, or " +
+                   "raise the configured provider's TimeoutSeconds.";
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "The model or Ollama call failed");
-            return "I hit an error talking to the model. Make sure Ollama is running and that " +
-                   "the configured model has been pulled (see the README), then try again.";
+            _logger.LogWarning(ex, "The call to {Backend} failed", _backend.Description);
+            return "I hit an error talking to the model. For a local model, make sure Ollama is running " +
+                   "and the configured model has been pulled; for a hosted one, check the API key and " +
+                   "model id (see the README), then try again.";
         }
     }
 
@@ -144,6 +163,7 @@ public sealed class StarTrekAgentService : IAsyncDisposable
         {
             await _mcpClient.DisposeAsync();
         }
+        _backend.OwnedDisposable?.Dispose();
         _connectLock.Dispose();
     }
 }
