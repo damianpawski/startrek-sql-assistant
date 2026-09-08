@@ -34,10 +34,28 @@ public sealed class StarTrekAgentService : IAsyncDisposable
         (a disc within a MediaSet), and MediumVolumeEpisode (which episodes are
         on which disc).
 
+        Their columns are:
+          Series(series_id, title, begin, end)
+          Episode(episode_id, series_id, title, airdate, remastered_airdate,
+                  season, episode_number, production_code, stardate, date,
+                  vignette)
+          Movie(movie_id, title, release_date, stardate)
+          MediaSet(media_set_id, series_id, type, season)
+          MediumVolume(medium_volume_id, media_set_id, sequence)
+          MediumVolumeEpisode(medium_volume_id, episode_id)
+
+        Series.begin and Series.end are the dates a show first and last aired.
+
+        Two things about this deployment will otherwise mislead you.
+        describe_entities returns an empty field list for every entity here, so
+        trust the schema above rather than concluding a column does not exist.
+        And titles are stored in full - "Star Trek: Deep Space Nine", not "Deep
+        Space Nine" - so if an exact-match filter on a name returns no rows,
+        read the table instead (Series has 15 rows) and pick the row yourself.
+
         Always use the tools to look up facts rather than relying on your own
         knowledge of Star Trek - the database is the source of truth for this
-        conversation. If you are unsure what fields an entity has, call
-        describe_entities first. Prefer aggregate_records for counts, sums, or
+        conversation. Prefer aggregate_records for counts, sums, or
         "how many" questions rather than pulling every row yourself.
 
         Give clear, concise answers in plain English. Mention the specific
