@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/StarTrekSqlAssistant.Web/StarTrekSqlAssistant.Web.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/StarTrekSqlAssistant.Tests/StarTrekSqlAssistant.Tests.csproj" />
+  </Folder>
 </Solution>

@@ -1,5 +1,6 @@
 using System.ClientModel;
 using Anthropic;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
 using OpenAI;
@@ -27,21 +28,37 @@ public sealed record ChatBackend(
 /// Everything downstream - the MCP tool list, the automatic tool-calling loop,
 /// the chat UI - works against the IChatClient abstraction, which is why adding
 /// a provider means adding a case here and nothing else.
+///
+/// Injected as <see cref="IChatClientFactory"/> rather than called statically,
+/// so tests can hand the agent a scripted client instead of a real provider.
 /// </summary>
-public static class ChatClientFactory
+public sealed class ChatClientFactory : IChatClientFactory
 {
-    public static ChatBackend Create(
-        ModelOptions model,
-        OllamaOptions ollama,
-        OpenAIOptions openAi,
-        AnthropicOptions anthropic)
-        => model.Provider switch
+    private readonly ModelOptions _model;
+    private readonly OllamaOptions _ollama;
+    private readonly OpenAIOptions _openAi;
+    private readonly AnthropicOptions _anthropic;
+
+    public ChatClientFactory(
+        IOptions<ModelOptions> model,
+        IOptions<OllamaOptions> ollama,
+        IOptions<OpenAIOptions> openAi,
+        IOptions<AnthropicOptions> anthropic)
+    {
+        _model = model.Value;
+        _ollama = ollama.Value;
+        _openAi = openAi.Value;
+        _anthropic = anthropic.Value;
+    }
+
+    public ChatBackend Create()
+        => _model.Provider switch
         {
-            ModelProvider.Ollama => CreateOllama(ollama),
-            ModelProvider.OpenAI => CreateOpenAI(openAi),
-            ModelProvider.Anthropic => CreateAnthropic(anthropic),
+            ModelProvider.Ollama => CreateOllama(_ollama),
+            ModelProvider.OpenAI => CreateOpenAI(_openAi),
+            ModelProvider.Anthropic => CreateAnthropic(_anthropic),
             _ => throw new InvalidOperationException(
-                $"Unknown Model:Provider '{model.Provider}'. Valid values: " +
+                $"Unknown Model:Provider '{_model.Provider}'. Valid values: " +
                 string.Join(", ", Enum.GetNames<ModelProvider>())),
         };
 
@@ -122,8 +139,11 @@ public static class ChatClientFactory
     /// filter as an ordinary tool result rather than an exception, so
     /// MaximumConsecutiveErrorsPerRequest never trips. A local model that kept
     /// retrying a malformed date filter ran for over 15 minutes before this cap.
+    ///
+    /// Public so tests exercise the same wrapper the app runs, rather than a
+    /// hand-rolled stand-in for it.
     /// </summary>
-    private static IChatClient Wrap(IChatClient inner) =>
+    public static IChatClient Wrap(IChatClient inner) =>
         new ChatClientBuilder(inner)
             .UseFunctionInvocation(configure: client => client.MaximumIterationsPerRequest = MaxToolRounds)
             .Build();

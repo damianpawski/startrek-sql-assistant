@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore StarTrekSqlMPC-POC.slnx
+
+      - name: Build
+        run: dotnet build StarTrekSqlMPC-POC.slnx --configuration Release --no-restore
+
+      # No Docker, no SQL Server, no model: every test runs against in-process
+      # fakes, which is the point of the IChatClientFactory / IMcpToolProvider
+      # seams. If a test here needs a container, it is in the wrong project.
+      - name: Test
+        run: dotnet test StarTrekSqlMPC-POC.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: artifacts/test-results
+
+  # The app image is part of the deliverable, so a change that breaks the
+  # Dockerfile should fail CI rather than fail on someone's first
+  # `docker compose up`. Build only - nothing is pushed anywhere.
+  docker-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The build context is the project folder, exactly as docker-compose.yml
+      # sets it - the Dockerfile's `COPY StarTrekSqlAssistant.Web.csproj .`
+      # depends on that, as does .dockerignore keeping bin/ and obj/ out.
+      - name: Build the Blazor app image
+        run: docker build -t startrek-sql-assistant:ci ./src/StarTrekSqlAssistant.Web

@@ -32,9 +32,15 @@ builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Olla
 builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("OpenAI"));
 builder.Services.Configure<AnthropicOptions>(builder.Configuration.GetSection("Anthropic"));
 
+// Everything the agent depends on is registered as an interface, so the agent
+// can be built over a scripted chat client and a fake tool server in tests.
+builder.Services.AddSingleton<IChatClientFactory, ChatClientFactory>();
+
 // Singleton: one shared MCP connection and tool list for the whole app,
 // rather than reconnecting to DAB for every chat.
-builder.Services.AddSingleton<StarTrekAgentService>();
+builder.Services.AddSingleton<DabMcpToolProvider>();
+builder.Services.AddSingleton<IMcpToolProvider>(sp => sp.GetRequiredService<DabMcpToolProvider>());
+builder.Services.AddSingleton<IStarTrekAgent, StarTrekAgentService>();
 
 var app = builder.Build();
 
@@ -43,7 +49,7 @@ var app = builder.Build();
 // Anthropic/OpenAI provider with no API key, an unparseable endpoint), and a
 // clear failure in the startup log beats a Blazor component blowing up when
 // someone types their first question.
-_ = app.Services.GetRequiredService<StarTrekAgentService>();
+_ = app.Services.GetRequiredService<IStarTrekAgent>();
 
 if (!app.Environment.IsDevelopment())
 {

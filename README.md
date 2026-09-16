@@ -137,10 +137,35 @@ src/StarTrekSqlAssistant.Web/
   Program.cs                 DI wiring: Blazor + the agent service
   Services/ChatClientFactory.cs      Ollama / OpenAI / Anthropic -> IChatClient
   Services/AgentOptions.cs           Config sections for each provider
-  Services/StarTrekAgentService.cs   MCP client + the tool-calling loop
+  Services/StarTrekAgentService.cs   The agent: prompt + tools -> answer
+  Services/DabMcpToolProvider.cs     MCP client; the tool list the model sees
+  Services/StarTrekPrompt.cs         The system prompt — the only schema the model gets
   Components/Pages/Home.razor        The chat UI
   Dockerfile
+tests/StarTrekSqlAssistant.Tests/   Fakes for the model and for DAB; no Docker needed
+.github/workflows/ci.yml            Build, test, and build the app image
 ```
+
+## Tests
+
+```bash
+dotnet test StarTrekSqlMPC-POC.slnx
+```
+
+Everything the agent depends on is injected behind an interface —
+`IChatClientFactory` for the provider, `IMcpToolProvider` for the tools,
+`IStarTrekAgent` for the UI — so the whole suite runs in process with no
+container, no API key and no model.
+
+The interesting ones are in `ToolCallingTests`: a scripted model, the app's own
+`UseFunctionInvocation()` loop, and a fake DAB that enforces the rules the
+system prompt asserts. A date filter has to be a full unquoted UTC timestamp;
+`aggregate_records` takes one existing column and never an expression;
+`describe_entities` comes back with no fields. A rejected argument arrives as a
+tool result rather than an exception, so the loop keeps going and the next call
+can get it right — and `MaxToolRounds` is what stops it going forever.
+`SystemPromptTests` parses `dab/dab-config.json` and `db-init/init.sql` and
+fails if the prompt has drifted from either.
 
 ## The database
 

@@ -1,5 +1,5 @@
 @page "/"
-@inject StarTrekAgentService Agent
+@inject IStarTrekAgent Agent
 @inject IJSRuntime JS
 
 <div class="chat">
@@ -77,7 +77,10 @@
 </div>
 
 @code {
-    private List<ChatMessage> _messages = StarTrekAgentService.CreateConversation();
+    // Seeded in OnInitialized rather than here: the conversation starts with the
+    // agent's system prompt, and injected services are not available in a field
+    // initializer.
+    private List<ChatMessage> _messages = [];
     private string _input = "";
     private bool _isThinking;
     private bool _shouldScroll;
@@ -123,6 +126,8 @@
                 "How many discs are in the Next Generation season 3 Blu-ray set?",
             ]),
     ];
+
+    protected override void OnInitialized() => _messages = Agent.CreateConversation();
 
     private async Task SendAsync(string question)
     {
