@@ -13,6 +13,74 @@
 
 <body>
   <Routes @rendermode="RenderMode.InteractiveServer" />
+
+    @*
+        Shown by blazor.web.js when the circuit hits an unhandled exception. The
+        framework only looks this element up by id - without it an error kills
+        the circuit and nothing appears on screen; the page just stops
+        responding. It sets style.display = "block" on this element and wires
+        .reload and .dismiss itself, so the layout lives on the inner div.
+    *@
+    <div id="blazor-error-ui" role="alert">
+        <div class="error-ui-inner">
+            <span>Something went wrong and this page stopped working. The conversation can't be recovered.</span>
+            <a href="" class="reload">Reload</a>
+            <button type="button" class="dismiss" aria-label="Dismiss">&times;</button>
+        </div>
+    </div>
+
+    @*
+        Replaces the framework's built-in "Rejoining the server..." overlay. When
+        an element with this id exists, blazor.web.js stops drawing its own and
+        instead toggles components-reconnect-{show,retrying,paused,failed,
+        resume-failed,rejected,hide} classes on it; app.css maps each class to
+        one message, and app.js wires the buttons. Questions here can run for
+        minutes, so a dropped circuit mid-answer is the likeliest failure - the
+        messages say plainly when the conversation is gone.
+    *@
+    <div id="components-reconnect-modal" role="alertdialog" aria-live="assertive">
+        <div class="reconnect-card">
+            <div class="reconnect-msg reconnect-msg-retrying">
+                <h2>Connection lost</h2>
+                <p>
+                    Reconnecting to the server&hellip;
+                    <span class="reconnect-attempt">
+                        Attempt <span id="components-reconnect-current-attempt"></span>
+                        of <span id="components-reconnect-max-retries"></span>,
+                        next in <span id="components-seconds-to-next-attempt"></span>s.
+                    </span>
+                </p>
+            </div>
+
+            <div class="reconnect-msg reconnect-msg-paused">
+                <h2>Session paused</h2>
+                <p>The server paused this session while it was idle.</p>
+                <button type="button" data-reconnect-action="resume">Resume</button>
+            </div>
+
+            <div class="reconnect-msg reconnect-msg-failed">
+                <h2>Couldn't reconnect</h2>
+                <p>The server isn't answering. If you restarted the stack, give it a few seconds.</p>
+                <button type="button" data-reconnect-action="retry">Try again</button>
+            </div>
+
+            <div class="reconnect-msg reconnect-msg-resume-failed">
+                <h2>Couldn't resume</h2>
+                <p>The paused session has expired. Reload to start a new conversation.</p>
+                <button type="button" data-reconnect-action="reload">Reload</button>
+            </div>
+
+            <div class="reconnect-msg reconnect-msg-rejected">
+                <h2>Session ended</h2>
+                <p>
+                    The server no longer has this session - usually because the app restarted.
+                    The conversation, including any answer in progress, can't be recovered.
+                </p>
+                <button type="button" data-reconnect-action="reload">Reload</button>
+            </div>
+        </div>
+    </div>
+
     <script src="_framework/blazor.web.js"></script>
     <script src="app.js"></script>
 </body>

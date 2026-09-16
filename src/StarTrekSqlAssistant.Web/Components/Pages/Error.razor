@@ -1,0 +1,24 @@
+@page "/Error"
+
+@*
+    Target of app.UseExceptionHandler("/Error") in Program.cs, which is only
+    active outside Development - i.e. in the Docker image. Without this page an
+    unhandled exception fell through to the NotFound block in Routes.razor and
+    rendered "nothing at this address", presenting a 500 as a 404.
+    Deliberately static: no HttpContext or request-id plumbing, since under
+    interactive routing HttpContext is null once the circuit starts.
+*@
+
+<PageTitle>Error - Star Trek SQL Assistant</PageTitle>
+
+<div class="error-page">
+    <h1>Something went wrong</h1>
+    <p>
+        The server hit an unexpected error while handling that request. This is a
+        problem in the app, not with your question.
+    </p>
+    <p class="error-page-hint">
+        The details are in the server log: <code>docker compose logs blazor-app</code>
+    </p>
+    <a class="error-page-home" href="/">Back to the assistant</a>
+</div>

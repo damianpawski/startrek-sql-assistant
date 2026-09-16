@@ -242,3 +242,183 @@ main {
     color: #8b876f;
     cursor: not-allowed;
 }
+
+/* ---------------------------------------------------------------------------
+   Unhandled-error banner (#blazor-error-ui in App.razor). blazor.web.js sets
+   style.display = "block" on the outer element, so it must start hidden and
+   the flex layout lives on .error-ui-inner.
+   --------------------------------------------------------------------------- */
+
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    background: #2a1a14;
+    border-top: 2px solid #f4a94d;
+    color: #e7e9f0;
+    font-size: 0.9rem;
+}
+
+#blazor-error-ui .error-ui-inner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 0.75rem 1.25rem;
+}
+
+#blazor-error-ui .error-ui-inner span {
+    flex: 1;
+}
+
+#blazor-error-ui .reload {
+    color: #f4a94d;
+    font-weight: 600;
+}
+
+#blazor-error-ui .dismiss {
+    background: none;
+    border: none;
+    color: #8b91a8;
+    font-size: 1.3rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#blazor-error-ui .dismiss:hover {
+    color: #e7e9f0;
+}
+
+/* ---------------------------------------------------------------------------
+   Reconnect modal (#components-reconnect-modal in App.razor). blazor.web.js
+   toggles one state class at a time, except "retrying", which is added on top
+   of "show". Each class reveals exactly one .reconnect-msg block.
+   --------------------------------------------------------------------------- */
+
+#components-reconnect-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1001;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(5, 7, 12, 0.75);
+}
+
+#components-reconnect-modal.components-reconnect-show,
+#components-reconnect-modal.components-reconnect-paused,
+#components-reconnect-modal.components-reconnect-failed,
+#components-reconnect-modal.components-reconnect-resume-failed,
+#components-reconnect-modal.components-reconnect-rejected {
+    display: flex;
+}
+
+.reconnect-card {
+    width: 100%;
+    max-width: 400px;
+    padding: 1.25rem 1.4rem;
+    background: #171b29;
+    border: 1px solid #262b3d;
+    border-top: 2px solid #f4a94d;
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.reconnect-msg,
+.reconnect-attempt {
+    display: none;
+}
+
+.components-reconnect-show .reconnect-msg-retrying,
+.components-reconnect-paused .reconnect-msg-paused,
+.components-reconnect-failed .reconnect-msg-failed,
+.components-reconnect-resume-failed .reconnect-msg-resume-failed,
+.components-reconnect-rejected .reconnect-msg-rejected {
+    display: block;
+}
+
+.components-reconnect-retrying .reconnect-attempt {
+    display: inline;
+}
+
+.reconnect-msg h2 {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f4a94d;
+}
+
+.reconnect-msg p {
+    margin: 0;
+    color: #cdd2e3;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.reconnect-attempt {
+    color: #8b91a8;
+}
+
+.reconnect-msg button {
+    margin-top: 1rem;
+    background: #f4a94d;
+    color: #201404;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.reconnect-msg button:disabled {
+    background: #4a4531;
+    color: #8b876f;
+    cursor: wait;
+}
+
+/* ---------------------------------------------------------------------------
+   /Error page (Components/Pages/Error.razor)
+   --------------------------------------------------------------------------- */
+
+.error-page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 3rem 1.25rem;
+}
+
+.error-page h1 {
+    margin: 0 0 0.75rem;
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #f4a94d;
+}
+
+.error-page p {
+    margin: 0 0 0.75rem;
+    color: #cdd2e3;
+    line-height: 1.5;
+}
+
+.error-page-hint {
+    font-size: 0.88rem;
+}
+
+.error-page-hint code {
+    background: #171b29;
+    border: 1px solid #262b3d;
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    color: #e7e9f0;
+}
+
+.error-page-home {
+    display: inline-block;
+    margin-top: 0.5rem;
+    color: #f4a94d;
+    font-weight: 600;
+}

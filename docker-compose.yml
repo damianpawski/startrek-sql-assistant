@@ -5,7 +5,10 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd}"
+      # Required, deliberately no default: `:?` makes compose refuse to start
+      # without a .env rather than fall back to a password published in this
+      # repo. The same guard is repeated on sql-init and dab below.
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env - copy .env.example first}"
       MSSQL_PID: Developer
     # Host-side port only — everything inside the Compose network still talks
     # to sqlserver:1433. Override MSSQL_HOST_PORT if 1433 is taken on the host.
@@ -61,7 +64,7 @@ services:
       - -U
       - sa
       - -P
-      - "${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd}"
+      - "${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env - copy .env.example first}"
       - -b
       - -i
       - /scripts/init.sql
@@ -77,7 +80,7 @@ services:
     environment:
       DATABASE_CONNECTION_STRING: >-
         Server=sqlserver,1433;Database=StarTrek;User ID=sa;
-        Password=${MSSQL_SA_PASSWORD:-YourStrong!Passw0rd};
+        Password=${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env - copy .env.example first};
         TrustServerCertificate=True;Encrypt=True;
     volumes:
       - ./dab/dab-config.json:/App/dab-config.json:ro
@@ -102,9 +105,11 @@ services:
       # provider's settings below are read; the rest can stay unset.
       Model__Provider: "${MODEL_PROVIDER:-Ollama}"
       Ollama__Endpoint: "${OLLAMA_ENDPOINT:-http://host.docker.internal:11434}"
-      Ollama__Model: "${OLLAMA_MODEL:-qwen3:8b}"
+      Ollama__Model: "${OLLAMA_MODEL:-llama3.1}"
       OpenAI__ApiKey: "${OPENAI_API_KEY:-}"
       OpenAI__Model: "${OPENAI_MODEL:-gpt-4o-mini}"
+      # Empty = api.openai.com. Set it for Azure OpenAI or any OpenAI-compatible gateway.
+      OpenAI__Endpoint: "${OPENAI_ENDPOINT:-}"
       Anthropic__ApiKey: "${ANTHROPIC_API_KEY:-}"
       Anthropic__Model: "${ANTHROPIC_MODEL:-claude-haiku-4-5}"
     ports:
@@ -115,8 +120,13 @@ services:
     # the previous container fails with "The antiforgery token could not be
     # decrypted" and the page errors out before a question ever reaches the
     # model - with nothing in the app logs to explain it.
+    #
+    # The path is /home/app, not /root: the Dockerfile runs the app as the
+    # non-root "app" user (uid 1654) and the key ring lives under that user's
+    # home. The Dockerfile pre-creates and chowns this directory so Docker
+    # seeds the volume with app ownership - keep the two paths in sync.
     volumes:
-      - dataprotection-keys:/root/.aspnet/DataProtection-Keys
+      - dataprotection-keys:/home/app/.aspnet/DataProtection-Keys
 
 volumes:
   sqlserver-data:

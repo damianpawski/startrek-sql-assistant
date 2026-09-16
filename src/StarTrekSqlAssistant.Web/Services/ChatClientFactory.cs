@@ -106,13 +106,26 @@ public static class ChatClientFactory
     }
 
     /// <summary>
+    /// Model round trips allowed for one question, including the first. Every
+    /// sample question answers in one or two tool calls; six leaves room to
+    /// recover from a bad argument or two.
+    /// </summary>
+    public const int MaxToolRounds = 6;
+
+    /// <summary>
     /// UseFunctionInvocation() is what runs the pick-a-tool / call-it /
     /// feed-the-result-back loop. Every provider gets the same wrapper, so
     /// swapping backends never changes how tools are executed.
+    ///
+    /// The library default is 40 rounds, and nothing else bounds a question:
+    /// the provider timeout applies per model call, and DAB reports a bad
+    /// filter as an ordinary tool result rather than an exception, so
+    /// MaximumConsecutiveErrorsPerRequest never trips. A local model that kept
+    /// retrying a malformed date filter ran for over 15 minutes before this cap.
     /// </summary>
     private static IChatClient Wrap(IChatClient inner) =>
         new ChatClientBuilder(inner)
-            .UseFunctionInvocation()
+            .UseFunctionInvocation(configure: client => client.MaximumIterationsPerRequest = MaxToolRounds)
             .Build();
 
     private static void RequireApiKey(string key, string provider, string secretPath, string envVar)

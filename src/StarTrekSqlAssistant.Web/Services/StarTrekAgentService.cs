@@ -44,7 +44,8 @@ public sealed class StarTrekAgentService : IAsyncDisposable
           MediumVolume(medium_volume_id, media_set_id, sequence)
           MediumVolumeEpisode(medium_volume_id, episode_id)
 
-        Series.begin and Series.end are the dates a show first and last aired.
+        Series.begin and Series.end are the dates a show first and last aired;
+        end is null for a show that is still airing.
 
         Two things about this deployment will otherwise mislead you.
         describe_entities returns an empty field list for every entity here, so
@@ -57,6 +58,27 @@ public sealed class StarTrekAgentService : IAsyncDisposable
         knowledge of Star Trek - the database is the source of truth for this
         conversation. Prefer aggregate_records for counts, sums, or
         "how many" questions rather than pulling every row yourself.
+
+        aggregate_records works on a single existing column: field must be one
+        column name, never an expression such as "end - begin", and avg, sum,
+        min and max need a numeric column. Dates are not numeric. For anything
+        computed from more than one column - how long a show ran, the gap
+        between two dates - use read_records to fetch the rows, then do the
+        calculation yourself.
+
+        Filters on date columns (Series.begin, Series.end, Episode.airdate,
+        Movie.release_date) must use a full UTC timestamp with no quotes, for
+        example: begin ge 1990-01-01T00:00:00Z and begin lt 2000-01-01T00:00:00Z
+        A quoted date ('1990-01-01') and a bare date (1990-01-01) are both
+        rejected by the tool. To find a show that is still airing, filter on
+        end eq null. In a select list, separate column names with commas and
+        no spaces.
+
+        Pass tool arguments with the types the tool declares: booleans as true
+        or false, numbers as numbers, never as quoted strings. If a tool call
+        returns an error, fix the arguments and call the tool again. Never
+        write a tool call out as text in your answer - the user only sees your
+        text, and a tool call written there is never run.
 
         Give clear, concise answers in plain English. Mention the specific
         titles, dates, numbers, or stardates you found so the answer is
@@ -121,6 +143,19 @@ public sealed class StarTrekAgentService : IAsyncDisposable
         try
         {
             var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+
+            // Empty text means the model never produced an answer - typically it
+            // was still asking for tools when ChatClientFactory.MaxToolRounds cut
+            // the loop off. Say so instead of rendering a blank bubble.
+            if (string.IsNullOrWhiteSpace(response.Text))
+            {
+                _logger.LogWarning(
+                    "{Backend} returned no answer text after up to {Rounds} tool rounds",
+                    _backend.Description, ChatClientFactory.MaxToolRounds);
+                return $"I couldn't work that out within {ChatClientFactory.MaxToolRounds} database lookups. " +
+                       "Try asking in a simpler or more specific way.";
+            }
+
             return response.Text;
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
