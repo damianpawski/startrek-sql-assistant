@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.AI;
 
 namespace StarTrekSqlAssistant.Web.Services;
@@ -54,54 +55,128 @@ public sealed class StarTrekAgentService : IStarTrekAgent, IAsyncDisposable
     /// </remarks>
     public async Task<string> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<AITool> tools;
+        // The question span is the parent of everything the answer costs: the
+        // gen_ai span Microsoft.Extensions.AI emits per model round trip, and a
+        // mcp_tool span per tool the model picked. The outcome tag is what makes
+        // the friendly-string failures below countable - without it a stack that
+        // is answering nothing at all looks, in the metrics, exactly like one
+        // that is answering everything.
+        using var activity = AgentTelemetry.Source.StartActivity(AgentTelemetry.QuestionActivity);
+        var started = Stopwatch.GetTimestamp();
+
+        // Only an escaping OperationCanceledException can leave this unset - every
+        // other path below assigns it before returning. Deliberately never the
+        // question text: content on a span is governed solely by
+        // Telemetry:CaptureMessageContent, which this does not consult.
+        var outcome = AgentTelemetry.Outcomes.Cancelled;
+        activity?.SetTag(AgentTelemetry.Tags.QuestionLength, messages[^1].Text?.Length ?? 0);
+
+        // Logged and counted before the slow part, not after: a question that is
+        // still being answered produces no span (spans export on completion) and
+        // no log of its own, so without these two the dashboard cannot tell a
+        // model thinking for four minutes from one that never started. The length,
+        // never the text - Telemetry:CaptureMessageContent is the only switch that
+        // puts what someone typed anywhere.
+        AgentTelemetry.QuestionsActive.Add(1);
+        _logger.LogInformation(
+            "Question received ({Length} characters); asking {Backend}",
+            messages[^1].Text?.Length ?? 0, _backend.Description);
+
         try
         {
-            tools = await _toolProvider.GetToolsAsync(cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "Could not reach the DAB MCP endpoint");
-            return "I can't reach the database connector yet - it may still be starting up in Docker. " +
-                   "Give it a few more seconds and ask again.";
-        }
-
-        var options = new ChatOptions { Tools = [.. tools] };
-
-        try
-        {
-            var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
-
-            // Empty text means the model never produced an answer - typically it
-            // was still asking for tools when ChatClientFactory.MaxToolRounds cut
-            // the loop off. Say so instead of rendering a blank bubble.
-            if (string.IsNullOrWhiteSpace(response.Text))
+            IReadOnlyList<AITool> tools;
+            try
             {
-                _logger.LogWarning(
-                    "{Backend} returned no answer text after up to {Rounds} tool rounds",
-                    _backend.Description, ChatClientFactory.MaxToolRounds);
-                return $"I couldn't work that out within {ChatClientFactory.MaxToolRounds} database lookups. " +
-                       "Try asking in a simpler or more specific way.";
+                tools = await _toolProvider.GetToolsAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                outcome = AgentTelemetry.Outcomes.DabUnreachable;
+                Fail(activity, ex);
+                _logger.LogWarning(ex, "Could not reach the DAB MCP endpoint");
+                return "I can't reach the database connector yet - it may still be starting up in Docker. " +
+                       "Give it a few more seconds and ask again.";
             }
 
-            return response.Text;
+            activity?.SetTag(AgentTelemetry.Tags.ToolCount, tools.Count);
+            var options = new ChatOptions { Tools = [.. tools] };
+
+            try
+            {
+                var response = await _chatClient.GetResponseAsync(messages, options, cancellationToken);
+
+                // Empty text means the model never produced an answer - typically it
+                // was still asking for tools when ChatClientFactory.MaxToolRounds cut
+                // the loop off. Say so instead of rendering a blank bubble.
+                if (string.IsNullOrWhiteSpace(response.Text))
+                {
+                    outcome = AgentTelemetry.Outcomes.NoAnswer;
+                    _logger.LogWarning(
+                        "{Backend} returned no answer text after up to {Rounds} tool rounds",
+                        _backend.Description, ChatClientFactory.MaxToolRounds);
+                    return $"I couldn't work that out within {ChatClientFactory.MaxToolRounds} database lookups. " +
+                           "Try asking in a simpler or more specific way.";
+                }
+
+                outcome = AgentTelemetry.Outcomes.Answered;
+                return response.Text;
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // HttpClient surfaces its own timeout as TaskCanceledException. The
+                // when-clause keeps a real user/circuit cancellation out of here.
+                outcome = AgentTelemetry.Outcomes.Timeout;
+                Fail(activity, ex);
+                _logger.LogWarning(ex, "{Backend} did not answer within {Timeout}", _backend.Description, _backend.Timeout);
+                return $"That question took longer than {_backend.Timeout.TotalSeconds:N0} seconds and I gave up " +
+                       "waiting. A local thinking model on a small GPU can be slow - try a simpler question, or " +
+                       "raise the configured provider's TimeoutSeconds.";
+            }
+            catch (McpConnectionLostException ex)
+            {
+                // The tool wrapper already reconnected and retried once, and that
+                // retry failed too - so this is DAB being genuinely gone, not a
+                // stale session. Distinguished from the generic catch below because
+                // that one tells the user to go and check their Ollama install,
+                // which is the wrong thing to go and check.
+                outcome = AgentTelemetry.Outcomes.ConnectionLost;
+                Fail(activity, ex);
+                _logger.LogWarning(ex, "Lost the MCP connection mid-answer and could not re-establish it");
+                return "I lost the connection to the database connector - it may have restarted. " +
+                       "Give it a few seconds and ask again.";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                outcome = AgentTelemetry.Outcomes.Error;
+                Fail(activity, ex);
+                _logger.LogWarning(ex, "The call to {Backend} failed", _backend.Description);
+                return "I hit an error talking to the model. For a local model, make sure Ollama is running " +
+                       "and the configured model has been pulled; for a hosted one, check the API key and " +
+                       "model id (see the README), then try again.";
+            }
         }
-        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        finally
         {
-            // HttpClient surfaces its own timeout as TaskCanceledException. The
-            // when-clause keeps a real user/circuit cancellation out of here.
-            _logger.LogWarning(ex, "{Backend} did not answer within {Timeout}", _backend.Description, _backend.Timeout);
-            return $"That question took longer than {_backend.Timeout.TotalSeconds:N0} seconds and I gave up " +
-                   "waiting. A local thinking model on a small GPU can be slow - try a simpler question, or " +
-                   "raise the configured provider's TimeoutSeconds.";
+            // In a finally so no return path can forget, including the cancelled
+            // one that never reaches a catch block at all.
+            AgentTelemetry.QuestionsActive.Add(-1);
+
+            var tag = new KeyValuePair<string, object?>(AgentTelemetry.Tags.Outcome, outcome);
+            activity?.SetTag(AgentTelemetry.Tags.Outcome, outcome);
+            AgentTelemetry.Questions.Add(1, tag);
+            AgentTelemetry.QuestionDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tag);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogWarning(ex, "The call to {Backend} failed", _backend.Description);
-            return "I hit an error talking to the model. For a local model, make sure Ollama is running " +
-                   "and the configured model has been pulled; for a hosted one, check the API key and " +
-                   "model id (see the README), then try again.";
-        }
+    }
+
+    /// <summary>
+    /// Marks the span failed. The friendly string the user gets back is not an
+    /// error as far as the chat is concerned, but it is as far as a trace is -
+    /// otherwise every one of these looks like a successful answer.
+    /// </summary>
+    private static void Fail(Activity? activity, Exception ex)
+    {
+        activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+        activity?.AddException(ex);
     }
 
     public ValueTask DisposeAsync()

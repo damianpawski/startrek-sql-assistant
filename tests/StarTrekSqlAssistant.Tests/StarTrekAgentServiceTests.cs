@@ -129,6 +129,23 @@ public class StarTrekAgentServiceTests
     }
 
     [Fact]
+    public async Task AskAsync_names_the_connector_when_the_MCP_connection_is_lost_mid_answer()
+    {
+        // Regression: a restarted DAB used to land in the generic catch below
+        // and tell the user to go and check their Ollama install, which is the
+        // wrong thing to go and check. The tool wrapper has already reconnected
+        // and retried by the time this exception gets here.
+        using var client = new ScriptedChatClient()
+            .ThenThrow(new McpConnectionLostException("Tool 'read_records' failed again on a fresh connection."));
+        var agent = TestAgent.Build(client);
+
+        var reply = await agent.AskAsync(Conversation(agent, "anything"));
+
+        Assert.Contains("lost the connection to the database connector", reply);
+        Assert.DoesNotContain("Ollama", reply);
+    }
+
+    [Fact]
     public async Task AskAsync_propagates_a_real_cancellation()
     {
         // A cancelled circuit is not a failed answer: swallowing it here would

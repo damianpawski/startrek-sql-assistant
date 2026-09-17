@@ -10,6 +10,38 @@ public class DabOptions
 }
 
 /// <summary>
+/// Where telemetry goes and how much of it there is. Bound from the "Telemetry"
+/// config section (env vars: Telemetry__OtlpEndpoint, Telemetry__CaptureMessageContent).
+/// </summary>
+public class TelemetryOptions
+{
+    /// <summary>What this app calls itself in traces, metrics and logs.</summary>
+    public string ServiceName { get; set; } = "startrek-sql-assistant";
+
+    /// <summary>
+    /// OTLP collector to export to - the Aspire Dashboard's ingest port
+    /// (http://aspire-dashboard:18889) under docker compose.
+    ///
+    /// Empty disables the exporter entirely, which is the default for
+    /// appsettings.json: `dotnet run` on the host is the fast-iteration mode and
+    /// usually has nothing listening, so it must not spend a background thread
+    /// retrying connections to a collector that isn't there. Instrumentation is
+    /// still registered either way, so the cost of leaving it empty is only that
+    /// nothing is shipped anywhere.
+    /// </summary>
+    public string OtlpEndpoint { get; set; } = "";
+
+    /// <summary>
+    /// Whether prompts and model responses are recorded on the gen_ai spans.
+    /// Off by default: the conversation includes whatever the user typed, and a
+    /// dashboard is a much easier thing to read than a log file. Turn it on while
+    /// debugging a bad answer - it is the only way to see what the model was
+    /// actually told - and turn it back off afterwards.
+    /// </summary>
+    public bool CaptureMessageContent { get; set; }
+}
+
+/// <summary>
 /// Which chat backend the agent talks to. Everything downstream of the
 /// constructor is <c>IChatClient</c>, so this is the only thing that changes
 /// between a local model and a hosted one.

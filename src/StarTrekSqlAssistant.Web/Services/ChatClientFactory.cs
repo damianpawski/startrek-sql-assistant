@@ -38,31 +38,34 @@ public sealed class ChatClientFactory : IChatClientFactory
     private readonly OllamaOptions _ollama;
     private readonly OpenAIOptions _openAi;
     private readonly AnthropicOptions _anthropic;
+    private readonly bool _captureMessageContent;
 
     public ChatClientFactory(
         IOptions<ModelOptions> model,
         IOptions<OllamaOptions> ollama,
         IOptions<OpenAIOptions> openAi,
-        IOptions<AnthropicOptions> anthropic)
+        IOptions<AnthropicOptions> anthropic,
+        IOptions<TelemetryOptions> telemetry)
     {
         _model = model.Value;
         _ollama = ollama.Value;
         _openAi = openAi.Value;
         _anthropic = anthropic.Value;
+        _captureMessageContent = telemetry.Value.CaptureMessageContent;
     }
 
     public ChatBackend Create()
         => _model.Provider switch
         {
-            ModelProvider.Ollama => CreateOllama(_ollama),
-            ModelProvider.OpenAI => CreateOpenAI(_openAi),
-            ModelProvider.Anthropic => CreateAnthropic(_anthropic),
+            ModelProvider.Ollama => CreateOllama(_ollama, _captureMessageContent),
+            ModelProvider.OpenAI => CreateOpenAI(_openAi, _captureMessageContent),
+            ModelProvider.Anthropic => CreateAnthropic(_anthropic, _captureMessageContent),
             _ => throw new InvalidOperationException(
                 $"Unknown Model:Provider '{_model.Provider}'. Valid values: " +
                 string.Join(", ", Enum.GetNames<ModelProvider>())),
         };
 
-    private static ChatBackend CreateOllama(OllamaOptions options)
+    private static ChatBackend CreateOllama(OllamaOptions options, bool captureMessageContent)
     {
         var timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
 
@@ -76,11 +79,11 @@ public sealed class ChatClientFactory : IChatClientFactory
             Timeout = timeout,
         };
 
-        var client = Wrap(new OllamaApiClient(http, options.Model));
+        var client = Wrap(new OllamaApiClient(http, options.Model), captureMessageContent);
         return new ChatBackend(client, $"Ollama {options.Model} at {options.Endpoint}", timeout, http);
     }
 
-    private static ChatBackend CreateOpenAI(OpenAIOptions options)
+    private static ChatBackend CreateOpenAI(OpenAIOptions options, bool captureMessageContent)
     {
         RequireApiKey(options.ApiKey, "OpenAI", "OpenAI:ApiKey", "OpenAI__ApiKey");
 
@@ -94,7 +97,7 @@ public sealed class ChatClientFactory : IChatClientFactory
         }
 
         var openAi = new OpenAIClient(new ApiKeyCredential(options.ApiKey), clientOptions);
-        var client = Wrap(openAi.GetChatClient(options.Model).AsIChatClient());
+        var client = Wrap(openAi.GetChatClient(options.Model).AsIChatClient(), captureMessageContent);
 
         var where = string.IsNullOrWhiteSpace(options.Endpoint) ? "api.openai.com" : options.Endpoint;
         return new ChatBackend(
@@ -104,7 +107,7 @@ public sealed class ChatClientFactory : IChatClientFactory
             OwnedDisposable: null);
     }
 
-    private static ChatBackend CreateAnthropic(AnthropicOptions options)
+    private static ChatBackend CreateAnthropic(AnthropicOptions options, bool captureMessageContent)
     {
         RequireApiKey(options.ApiKey, "Anthropic", "Anthropic:ApiKey", "Anthropic__ApiKey");
 
@@ -114,7 +117,7 @@ public sealed class ChatClientFactory : IChatClientFactory
             Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds),
         };
 
-        var client = Wrap(anthropic.AsIChatClient(options.Model, options.MaxOutputTokens));
+        var client = Wrap(anthropic.AsIChatClient(options.Model, options.MaxOutputTokens), captureMessageContent);
         return new ChatBackend(
             client,
             $"Anthropic {options.Model}",
@@ -132,7 +135,11 @@ public sealed class ChatClientFactory : IChatClientFactory
     /// <summary>
     /// UseFunctionInvocation() is what runs the pick-a-tool / call-it /
     /// feed-the-result-back loop. Every provider gets the same wrapper, so
-    /// swapping backends never changes how tools are executed.
+    /// swapping backends never changes how tools are executed - and the same
+    /// goes for UseOpenTelemetry(), which is why the gen_ai spans (model name,
+    /// duration, token counts) look identical whichever provider answered.
+    /// Telemetry is the outer layer so one span covers the whole tool loop
+    /// rather than one per round trip.
     ///
     /// The library default is 40 rounds, and nothing else bounds a question:
     /// the provider timeout applies per model call, and DAB reports a bad
@@ -143,8 +150,16 @@ public sealed class ChatClientFactory : IChatClientFactory
     /// Public so tests exercise the same wrapper the app runs, rather than a
     /// hand-rolled stand-in for it.
     /// </summary>
-    public static IChatClient Wrap(IChatClient inner) =>
+    /// <param name="captureMessageContent">
+    /// Whether prompts and responses are recorded on the spans. Defaults to
+    /// false so the safe setting is also the one a caller gets by forgetting -
+    /// see <see cref="TelemetryOptions.CaptureMessageContent"/>.
+    /// </param>
+    public static IChatClient Wrap(IChatClient inner, bool captureMessageContent = false) =>
         new ChatClientBuilder(inner)
+            .UseOpenTelemetry(
+                sourceName: AgentTelemetry.Name,
+                configure: client => client.EnableSensitiveData = captureMessageContent)
             .UseFunctionInvocation(configure: client => client.MaximumIterationsPerRequest = MaxToolRounds)
             .Build();
 

@@ -81,7 +81,49 @@ The first `docker compose up` takes a few minutes: SQL Server has to start,
 `sql-init` creates the `StarTrek` database and loads the schema/data, then DAB
 and the Blazor app come up. If your first question gets "I can't reach the
 database connector yet," DAB likely just wasn't fully warmed up — ask again a
-few seconds later, or `docker compose restart blazor-app`.
+few seconds later. `curl http://localhost:8080/health` reports the app's
+connection to DAB directly, so you can tell "still starting" from "actually
+broken" without going through the chat box.
+
+Restarting DAB under a running app is fine: the app notices the dropped
+connection on the next tool call, reconnects and answers anyway.
+
+### Watching it work
+
+`docker compose up` also starts an [Aspire
+Dashboard](https://learn.microsoft.com/dotnet/aspire/fundamentals/dashboard/standalone)
+at **http://localhost:18888**, which is where the app's traces, metrics and logs
+go. One question is one trace: the browser request, the model round trips (with
+the model name and token counts), and a span per database tool the model called —
+so "why was that answer wrong" and "why did that take 90 seconds" are questions
+you can answer by looking rather than by reading log files.
+
+The metrics worth knowing about are `startrek.questions` and
+`startrek.tool.calls`. Both are tagged with an outcome, which matters here
+because every failure in this app comes back as a polite sentence in the chat:
+without the tag, a stack that is answering nothing looks exactly like one that is
+answering everything. `startrek.tool.calls` is also tagged with the tool name,
+which is the quickest way to see whether the model is picking sensible tools.
+
+**While a question is still running**, the trace isn't there yet — OpenTelemetry
+exports a span when it *ends*, so a model that thinks for four minutes shows up
+in Traces four minutes later, all at once. Two things cover that gap: the app
+logs `Question received (N characters); asking <backend>` the moment you hit Ask
+(Structured Logs tab), and `startrek.questions.active` reads `1` for as long as
+the answer is in flight (Metrics tab). Metrics export every 5s here —
+`OTEL_METRIC_EXPORT_INTERVAL` in `docker-compose.yml`, because the SDK default of
+60s is too coarse to watch anything.
+
+Prompts and model responses are **not** recorded by default. Set
+`TELEMETRY_CAPTURE_CONTENT=true` in `.env` and `docker compose up -d` while
+you're debugging a bad answer — it's the only way to see what the model was
+actually told — then turn it back off.
+
+Running the app on the host (`dotnet run`) exports nothing: `Telemetry:OtlpEndpoint`
+is empty in `appsettings.json`, and an exporter pointed at a collector that isn't
+there just fills the console with retries. Set
+`Telemetry__OtlpEndpoint=http://localhost:18889` if you want that mode to report
+into the dashboard too.
 
 ## Scope and security
 
@@ -103,10 +145,15 @@ easy to inspect — and each one is a reason not to expose this stack:
   `anonymous`/`read`, and the chat app has no login and no rate limiting. With
   `MODEL_PROVIDER` set to OpenAI or Anthropic, anyone who can reach port 8080
   is spending your API credits.
-- **All three ports publish on every interface** — SQL Server (1433), DAB
-  (5000), and the app (8080) are reachable from your whole network, not only
-  the machine running them. Prefix the host side with `127.0.0.1:` in
-  `docker-compose.yml` if that network isn't one you trust.
+- **The Aspire Dashboard has its login turned off.**
+  `DASHBOARD__FRONTEND__AUTHMODE: Unsecured` in `docker-compose.yml` drops the
+  token prompt so the link above just works. The dashboard shows every request
+  the app served and, if `TELEMETRY_CAPTURE_CONTENT` is on, everything anyone
+  typed into the chat — so leave port 18888 on your own machine.
+- **All ports publish on every interface** — SQL Server (1433), DAB (5000),
+  the app (8080), and the dashboard (18888/18889) are reachable from your whole
+  network, not only the machine running them. Prefix the host side with
+  `127.0.0.1:` in `docker-compose.yml` if that network isn't one you trust.
 - **The example SA password is public.** Compose refuses to start without a
   `.env` (there is no built-in default), but `.env.example` carries a
   placeholder password that anyone can read in this repo, and compose can't
@@ -129,7 +176,8 @@ ports to `127.0.0.1`, and put the app behind whatever auth you already run.
 ## What's in here
 
 ```
-docker-compose.yml          4 services: sqlserver, sql-init, dab, blazor-app
+docker-compose.yml          5 services: sqlserver, sql-init, dab, blazor-app,
+                            aspire-dashboard (traces/metrics at :18888)
 .env.example                SA password + model provider/keys, copy to .env
 db-init/init.sql            Creates the StarTrek DB, schema, and data (runs once)
 dab/dab-config.json         DAB entity config — this is what generates the MCP tools
@@ -139,6 +187,10 @@ src/StarTrekSqlAssistant.Web/
   Services/AgentOptions.cs           Config sections for each provider
   Services/StarTrekAgentService.cs   The agent: prompt + tools -> answer
   Services/DabMcpToolProvider.cs     MCP client; the tool list the model sees
+  Services/ReconnectingMcpTool.cs    Rebuilds the connection when DAB restarts
+  Services/DabMcpHealthCheck.cs      /health — is the MCP connection up?
+  Services/AgentTelemetry.cs         Spans and metrics: question outcomes, tool calls
+  Services/McpWarmupService.cs       Validates config at startup, connects in the background
   Services/StarTrekPrompt.cs         The system prompt — the only schema the model gets
   Components/Pages/Home.razor        The chat UI
   Dockerfile

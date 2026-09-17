@@ -20,4 +20,15 @@
     <PackageReference Include="OpenAI" Version="2.12.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Traces, metrics and logs. The OTLP exporter is only *registered* when
+         Telemetry:OtlpEndpoint is set (see Program.cs), so a plain `dotnet run`
+         with nothing listening behaves exactly as it did before OTel existed. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+  </ItemGroup>
+
 </Project>

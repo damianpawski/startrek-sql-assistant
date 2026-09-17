@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using StarTrekSqlAssistant.Web.Services;
 
@@ -21,6 +22,24 @@ public sealed class UnreachableToolProvider(Exception? failure = null) : IMcpToo
         Task.FromException<IReadOnlyList<AITool>>(_failure);
 }
 
+/// <summary>
+/// Captures what the agent logged. The agent logs a line when a question starts
+/// - the only evidence a still-running question leaves anywhere - so what that
+/// line does and does not contain is worth asserting on.
+/// </summary>
+public sealed class CapturingLogger<T> : ILogger<T>
+{
+    public List<string> Messages { get; } = [];
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Messages.Add(formatter(state, exception));
+}
+
 /// <summary>Composes the real <see cref="StarTrekAgentService"/> over test doubles.</summary>
 public static class TestAgent
 {
@@ -29,10 +48,11 @@ public static class TestAgent
         IChatClient chatClient,
         IMcpToolProvider? toolProvider = null,
         string backendDescription = "Stub",
-        int timeoutSeconds = 30) =>
+        int timeoutSeconds = 30,
+        ILogger<StarTrekAgentService>? logger = null) =>
         new(new StubChatClientFactory(chatClient, backendDescription, timeoutSeconds),
             toolProvider ?? new FakeDabMcpServer().AsToolProvider(),
-            NullLogger<StarTrekAgentService>.Instance);
+            logger ?? NullLogger<StarTrekAgentService>.Instance);
 
     /// <summary>
     /// The agent with the app's real tool-calling loop around the scripted

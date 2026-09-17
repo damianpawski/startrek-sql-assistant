@@ -87,6 +87,24 @@ services:
     ports:
       - "5000:5000"
 
+  # Where the app's traces, metrics and logs go. This is the standalone Aspire
+  # Dashboard - the same UI `dotnet aspire` opens, run as a plain container, so
+  # docker compose stays the only orchestrator here.
+  #
+  # AUTHMODE Unsecured drops the login token, which is fine for a dashboard bound
+  # to your own machine and is the same "demo on localhost" trade as DAB's
+  # development mode. Don't publish 18888 anywhere shared.
+  #
+  # Storage is in-memory only and deliberately has no volume: restarting it drops
+  # the history, which is what you want between experiments.
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    environment:
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured
+    ports:
+      - "18888:18888"   # the UI
+      - "18889:18889"   # OTLP/gRPC ingest - what Telemetry__OtlpEndpoint points at
+
   # The model runtime is NOT containerized: this talks to the Ollama you have
   # installed natively on the host, which keeps GPU acceleration and avoids a
   # second multi-GB copy of the model. host.docker.internal resolves to the
@@ -97,10 +115,22 @@ services:
       context: ./src/StarTrekSqlAssistant.Web
     depends_on:
       - dab
+      - aspire-dashboard
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       Dab__McpEndpoint: "http://dab:5000/mcp"
+      # Empty disables the exporter entirely (the appsettings.json default, for
+      # running the app on the host). In compose there is always a dashboard, so
+      # it points at one unless you override it.
+      Telemetry__OtlpEndpoint: "${OTLP_ENDPOINT:-http://aspire-dashboard:18889}"
+      # Off by default: this puts the question text and the model's answer on the
+      # traces. Worth turning on while debugging a bad answer, not otherwise.
+      Telemetry__CaptureMessageContent: "${TELEMETRY_CAPTURE_CONTENT:-false}"
+      # Metrics are exported on a timer, and the SDK default is 60s - too slow to
+      # watch startrek.questions.active while a local model is still thinking.
+      # Read by the OTel SDK itself, not by TelemetryOptions.
+      OTEL_METRIC_EXPORT_INTERVAL: "${OTEL_METRIC_EXPORT_INTERVAL:-5000}"
       # Ollama (the default), OpenAI, or Anthropic. Only the selected
       # provider's settings below are read; the rest can stay unset.
       Model__Provider: "${MODEL_PROVIDER:-Ollama}"

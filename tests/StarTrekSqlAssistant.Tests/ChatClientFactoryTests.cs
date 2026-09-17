@@ -15,11 +15,13 @@ public class ChatClientFactoryTests
         ModelProvider provider,
         OllamaOptions? ollama = null,
         OpenAIOptions? openAi = null,
-        AnthropicOptions? anthropic = null) =>
+        AnthropicOptions? anthropic = null,
+        TelemetryOptions? telemetry = null) =>
         new(Options.Create(new ModelOptions { Provider = provider }),
             Options.Create(ollama ?? new OllamaOptions()),
             Options.Create(openAi ?? new OpenAIOptions()),
-            Options.Create(anthropic ?? new AnthropicOptions()));
+            Options.Create(anthropic ?? new AnthropicOptions()),
+            Options.Create(telemetry ?? new TelemetryOptions()));
 
     [Fact]
     public void Ollama_is_the_default_so_a_clone_runs_locally_with_no_credentials()
