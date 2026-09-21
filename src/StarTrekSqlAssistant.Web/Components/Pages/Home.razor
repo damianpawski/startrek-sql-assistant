@@ -40,7 +40,7 @@
                 </p>
 
                 <div class="capability-grid">
-                    @foreach (var topic in Topics)
+                    @foreach (var topic in HomeTopics.All)
                     {
                         <section class="capability-card">
                             <h2>@topic.Title</h2>
@@ -110,46 +110,7 @@
     /// </summary>
     private const int MaxHistoryMessages = 10;
 
-    /// <summary>One card on the empty-state panel: an entity the model can query,
-    /// the columns it holds, and questions that are answerable from those columns.</summary>
-    private sealed record Topic(string Title, string Fields, string[] Questions);
 
-    /// <summary>
-    /// Mirrors the entities in dab/dab-config.json - these are the only things the
-    /// model can look up. Keep in sync when an entity is added or renamed.
-    /// </summary>
-    private static readonly Topic[] Topics =
-    [
-        new("Series",
-            "Title, first air date, last air date.",
-            [
-                "When did Deep Space Nine start and end?",
-                "List every Star Trek series in order of first air date.",
-                "Which Star Trek series premiered in the 1990s?",
-            ]),
-
-        new("Episodes",
-            "Title, season, episode number, air date, remastered air date, production code, stardate.",
-            [
-                "How many episodes of The Next Generation are there?",
-                "What was the first episode of Voyager?",
-                "List the season 1 episodes of Strange New Worlds.",
-            ]),
-
-        new("Movies",
-            "Title, theatrical release date, stardate. Not linked to a series.",
-            [
-                "List the Star Trek movies released after 2000, newest first.",
-                "How many Star Trek movies are in the database?",
-            ]),
-
-        new("Home media",
-            "DVD, remastered DVD, HD DVD and Blu-ray sets per series and season, the discs in each set, and which episodes are on which disc.",
-            [
-                "What home-media formats were released for The Original Series?",
-                "How many discs are in the Next Generation season 3 Blu-ray set?",
-            ]),
-    ];
 
     protected override void OnInitialized() => _messages = Agent.CreateConversation();
 

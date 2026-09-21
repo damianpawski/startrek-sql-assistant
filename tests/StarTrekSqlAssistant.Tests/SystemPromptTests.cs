@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using StarTrekSqlAssistant.Web.Components.Pages;
 using StarTrekSqlAssistant.Web.Services;
 
 namespace StarTrekSqlAssistant.Tests;
@@ -12,7 +13,10 @@ namespace StarTrekSqlAssistant.Tests;
 /// there, and answers "the database has no such field" for ones that are.
 ///
 /// These tests are the sync check CLAUDE.md asks for by hand ("adding or
-/// renaming an entity is a two-file change ... keep them in sync").
+/// renaming an entity is a two-file change ... keep them in sync"). The schema
+/// is written out in four places - dab-config.json, init.sql, the prompt, and
+/// the chat page's empty-state cards - and every one of them is pinned here, so
+/// `dotnet test --filter "SystemPrompt"` is the whole drift check.
 /// </summary>
 public class SystemPromptTests
 {
@@ -26,6 +30,7 @@ public class SystemPromptTests
         Assert.Equal(6, Repo.DabEntities.Count);
         Assert.Equal(6, Repo.TableColumns.Count);
         Assert.Equal(6, PromptEntities().Count);
+        Assert.NotEmpty(HomeTopics.All);
     }
 
     [Fact]
@@ -108,6 +113,53 @@ public class SystemPromptTests
         // The whole point of the demo: answers come from SQL Server, not from
         // what the model happens to remember about Star Trek.
         Assert.Contains("the database is the source of truth", Prompt);
+    }
+
+    [Fact]
+    public void Every_entity_DAB_exposes_is_offered_on_the_page()
+    {
+        // An entity with no card is one nobody discovers: the empty state is the
+        // only place the app says what it can be asked about.
+        var offered = HomeTopics.All.SelectMany(topic => topic.Entities).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var entity in Repo.DabEntities.Keys)
+        {
+            Assert.True(
+                offered.Contains(entity),
+                $"dab-config.json exposes '{entity}' but no card on the chat page covers it. " +
+                "Add it to an existing Topic's Entities, or give it a card of its own.");
+        }
+    }
+
+    [Fact]
+    public void The_page_offers_no_entity_DAB_does_not_expose()
+    {
+        // The other direction, and the one a rename breaks: a card promising
+        // something DAB no longer serves sends a visitor to a sample question
+        // the model cannot answer, which reads as the app being broken.
+        foreach (var topic in HomeTopics.All)
+        {
+            foreach (var entity in topic.Entities)
+            {
+                Assert.True(
+                    Repo.DabEntities.ContainsKey(entity),
+                    $"The '{topic.Title}' card claims entity '{entity}', which dab-config.json does not " +
+                    "expose. Its sample questions cannot be answered.");
+            }
+        }
+    }
+
+    [Fact]
+    public void Every_card_carries_an_entity_and_a_question()
+    {
+        // Guards the two tests above from passing vacuously: a card with no
+        // entities is invisible to both of them, and one with no questions is a
+        // heading a visitor cannot act on.
+        foreach (var topic in HomeTopics.All)
+        {
+            Assert.NotEmpty(topic.Entities);
+            Assert.NotEmpty(topic.Questions);
+        }
     }
 
     /// <summary>The entity name -> column list lines the prompt spells out, e.g. "Series(series_id, title, begin, end)".</summary>
