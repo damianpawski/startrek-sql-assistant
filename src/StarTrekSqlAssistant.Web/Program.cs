@@ -26,17 +26,26 @@ builder.Services.AddRazorComponents()
         options.KeepAliveInterval = TimeSpan.FromSeconds(15);
     });
 
-builder.Services.Configure<DabOptions>(builder.Configuration.GetSection("Dab"));
-
-// Model:Provider picks the chat backend; the three sections below hold the
+// Every section is bound with a validator and ValidateOnStart, so a typo in a
+// URL or a missing API key stops the app during startup - with a message
+// naming the setting - instead of surfacing as a failure in whatever first
+// touched it. Registered before the hosted services below, because hosted
+// services run in registration order and the options validator is itself one:
+// this way "Ollama:Endpoint is not an absolute URL" beats McpWarmupService
+// resolving the agent and throwing a UriFormatException from a constructor.
+//
+// Model:Provider picks the chat backend; the three provider sections hold the
 // settings for whichever one is selected. Only the selected provider's section
-// is read, so the others can stay empty. API keys belong in user-secrets or
-// environment variables, never in appsettings.json.
-builder.Services.Configure<ModelOptions>(builder.Configuration.GetSection("Model"));
-builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
-builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("OpenAI"));
-builder.Services.Configure<AnthropicOptions>(builder.Configuration.GetSection("Anthropic"));
-builder.Services.Configure<TelemetryOptions>(builder.Configuration.GetSection("Telemetry"));
+// is validated - see OllamaOptionsValidator for why that conditionality is
+// unavoidable here. API keys belong in user-secrets or environment variables,
+// never in appsettings.json.
+builder.Services
+    .AddValidatedOptions<DabOptions, DabOptionsValidator>(builder.Configuration, "Dab")
+    .AddValidatedOptions<ModelOptions, ModelOptionsValidator>(builder.Configuration, "Model")
+    .AddValidatedOptions<OllamaOptions, OllamaOptionsValidator>(builder.Configuration, "Ollama")
+    .AddValidatedOptions<OpenAIOptions, OpenAIOptionsValidator>(builder.Configuration, "OpenAI")
+    .AddValidatedOptions<AnthropicOptions, AnthropicOptionsValidator>(builder.Configuration, "Anthropic")
+    .AddValidatedOptions<TelemetryOptions, TelemetryOptionsValidator>(builder.Configuration, "Telemetry");
 
 // Everything the agent depends on is registered as an interface, so the agent
 // can be built over a scripted chat client and a fake tool server in tests.
@@ -96,6 +105,17 @@ builder.Logging.AddOpenTelemetry(logging =>
 // app problem. Empty endpoint: instrumentation still runs, nothing ships.
 if (!string.IsNullOrWhiteSpace(telemetry.OtlpEndpoint))
 {
+    // Checked here as well as in TelemetryOptionsValidator, and with the same
+    // message, because this runs at configuration time - before the host starts
+    // and therefore before any validator does. Left to the Uri constructor, a
+    // typo here would surface as a bare "Invalid URI: The format of the URI
+    // could not be determined" that names neither the setting nor the value.
+    var problem = OptionChecks.Endpoint(telemetry.OtlpEndpoint, "Telemetry:OtlpEndpoint");
+    if (problem is not null)
+    {
+        throw new InvalidOperationException(problem);
+    }
+
     otel.UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri(telemetry.OtlpEndpoint));
 }
 

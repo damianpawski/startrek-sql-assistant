@@ -184,7 +184,8 @@ public class SystemPromptTests
 /// </summary>
 internal static class Repo
 {
-    private static readonly string Root = FindRoot();
+    /// <summary>The repository root, so a test can read a file the app ships.</summary>
+    public static string Root { get; } = FindRoot();
 
     /// <summary>Entity name (as the model sees it) -> table it reads, from dab-config.json.</summary>
     public static IReadOnlyDictionary<string, string> DabEntities { get; } = ReadDabEntities();
