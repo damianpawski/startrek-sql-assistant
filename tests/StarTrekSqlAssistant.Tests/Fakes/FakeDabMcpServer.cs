@@ -26,10 +26,14 @@ public sealed record ToolCallRecord(string Tool, IReadOnlyDictionary<string, obj
 /// </summary>
 public sealed class FakeDabMcpServer
 {
-    private static readonly string[] DateColumns = ["begin", "end", "airdate", "remastered_airdate", "release_date"];
+    private static readonly string[] DateColumns =
+        ["begin", "end", "airdate", "remastered_airdate", "release_date", "first_airdate", "last_airdate"];
 
     private static readonly string[] NumericColumns =
-        ["series_id", "episode_id", "movie_id", "season", "episode_number", "media_set_id", "medium_volume_id", "sequence"];
+    [
+        "series_id", "episode_id", "movie_id", "season", "episode_number", "media_set_id", "medium_volume_id", "sequence",
+        "air_year", "begin_year", "end_year", "run_days", "episode_count", "season_count", "disc",
+    ];
 
     private static readonly Regex UtcTimestamp = new(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", RegexOptions.Compiled);
 
@@ -53,6 +57,25 @@ public sealed class FakeDabMcpServer
         [
             Row(("movie_id", 1), ("title", "Star Trek: The Motion Picture"), ("release_date", "1979-12-07")),
             Row(("movie_id", 2), ("title", "Star Trek Nemesis"), ("release_date", "2002-12-13")),
+        ],
+
+        // The pre-joined views: the same episodes as above with their series
+        // attached, and per-series totals, so a cross-table question is one call.
+        ["EpisodeDetail"] =
+        [
+            Row(("episode_id", 1), ("series_id", 3), ("series_title", "Star Trek: Deep Space Nine"), ("series_abbreviation", "DS9"),
+                ("title", "Emissary"), ("season", 1), ("episode_number", 1), ("airdate", "1993-01-03"), ("air_year", 1993)),
+            Row(("episode_id", 2), ("series_id", 3), ("series_title", "Star Trek: Deep Space Nine"), ("series_abbreviation", "DS9"),
+                ("title", "Past Prologue"), ("season", 1), ("episode_number", 3), ("airdate", "1993-01-10"), ("air_year", 1993)),
+            Row(("episode_id", 3), ("series_id", 2), ("series_title", "Star Trek: The Next Generation"), ("series_abbreviation", "TNG"),
+                ("title", "Encounter at Farpoint"), ("season", 1), ("episode_number", 1), ("airdate", "1987-09-28"), ("air_year", 1987)),
+        ],
+        ["SeriesSummary"] =
+        [
+            Row(("series_id", 1), ("title", "Star Trek: The Original Series"), ("abbreviation", "TOS"), ("episode_count", 80), ("season_count", 3), ("run_days", 1004)),
+            Row(("series_id", 2), ("title", "Star Trek: The Next Generation"), ("abbreviation", "TNG"), ("episode_count", 178), ("season_count", 7), ("run_days", 2429)),
+            Row(("series_id", 3), ("title", "Star Trek: Deep Space Nine"), ("abbreviation", "DS9"), ("episode_count", 176), ("season_count", 7), ("run_days", 2341)),
+            Row(("series_id", 5), ("title", "Star Trek: Strange New Worlds"), ("abbreviation", "SNW"), ("episode_count", 20), ("season_count", 2), ("run_days", null)),
         ],
     };
 

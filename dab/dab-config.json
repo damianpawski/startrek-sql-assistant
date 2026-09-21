@@ -15,7 +15,7 @@
     },
     "mcp": {
       "enabled": true,
-      "description": "Query a reference database covering the Star Trek franchise: every TV series, episode, and movie, plus their home-media (DVD/Blu-ray) releases. Use read_records or aggregate_records against Series, Episode, and Movie for most questions; join across series_id / media_set_id / medium_volume_id / episode_id to answer questions about releases."
+      "description": "Query a reference database covering the Star Trek franchise: every TV series, episode, and movie, plus their home-media (DVD/Blu-ray) releases. Prefer the pre-joined entities: EpisodeDetail for episodes with their series name, SeriesSummary for per-show totals and spans, EpisodeOnDisc for which episodes are on which disc. Each answers in one read_records or aggregate_records call what would otherwise take several."
     },
     "host": {
       "mode": "development",
@@ -27,7 +27,7 @@
   "entities": {
     "Series": {
       "source": { "object": "dbo.series", "type": "table" },
-      "description": "Star Trek television series, one row per show, with the date each first and last aired.",
+      "description": "Star Trek television series, one row per show, with its full title, short abbreviation (TOS, TNG, DS9, VOY, ...), and the date it first and last aired.",
       "graphql": { "enabled": true, "type": { "singular": "Series", "plural": "AllSeries" } },
       "relationships": {
         "episodes": {
@@ -123,6 +123,30 @@
           "linking.target.fields": [ "episode_id" ]
         }
       },
+      "permissions": [
+        { "role": "anonymous", "actions": ["read"] }
+      ]
+    },
+    "EpisodeDetail": {
+      "source": { "object": "dbo.episode_detail", "type": "view", "key-fields": [ "episode_id" ] },
+      "description": "Every episode with its series' title and abbreviation already attached, plus air_year as a number. Use this instead of Episode whenever a question names a show or a year, e.g. episodes of DS9 season 2, or how many episodes aired in 1995.",
+      "graphql": { "enabled": true, "type": { "singular": "EpisodeDetail", "plural": "EpisodeDetails" } },
+      "permissions": [
+        { "role": "anonymous", "actions": ["read"] }
+      ]
+    },
+    "EpisodeOnDisc": {
+      "source": { "object": "dbo.episode_on_disc", "type": "view", "key-fields": [ "medium_volume_episode_id" ] },
+      "description": "One row per episode per home-media disc, with the series, media_type (DVD, Blu-ray, ...), set season and disc number already joined. Use this for any question about which disc or set an episode is on, or what is on a disc.",
+      "graphql": { "enabled": true, "type": { "singular": "EpisodeOnDisc", "plural": "EpisodesOnDisc" } },
+      "permissions": [
+        { "role": "anonymous", "actions": ["read"] }
+      ]
+    },
+    "SeriesSummary": {
+      "source": { "object": "dbo.series_summary", "type": "view", "key-fields": [ "series_id" ] },
+      "description": "One row per series with episode_count, season_count, run_days, begin/end year and first/last episode air date precomputed. Use this for which show has the most episodes or seasons, ran longest, or started in a given year.",
+      "graphql": { "enabled": true, "type": { "singular": "SeriesSummary", "plural": "SeriesSummaries" } },
       "permissions": [
         { "role": "anonymous", "actions": ["read"] }
       ]

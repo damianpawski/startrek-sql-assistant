@@ -35,20 +35,20 @@ public static class HomeTopics
     public static readonly Topic[] All =
     [
         new("Series",
-            ["Series"],
-            "Title, first air date, last air date.",
+            ["Series", "SeriesSummary"],
+            "Title, abbreviation, first and last air date, episode and season counts, how long it ran.",
             [
                 "When did Deep Space Nine start and end?",
-                "List every Star Trek series in order of first air date.",
+                "Which Star Trek series has the most episodes?",
                 "Which Star Trek series premiered in the 1990s?",
             ]),
 
         new("Episodes",
-            ["Episode"],
-            "Title, season, episode number, air date, remastered air date, production code, stardate.",
+            ["Episode", "EpisodeDetail"],
+            "Title, series, season, episode number, air date and year, remastered air date, production code, stardate.",
             [
                 "How many episodes of The Next Generation are there?",
-                "What was the first episode of Voyager?",
+                "How many Star Trek episodes aired in 1995?",
                 "List the season 1 episodes of Strange New Worlds.",
             ]),
 
@@ -61,11 +61,12 @@ public static class HomeTopics
             ]),
 
         new("Home media",
-            ["MediaSet", "MediumVolume", "MediumVolumeEpisode"],
+            ["MediaSet", "MediumVolume", "MediumVolumeEpisode", "EpisodeOnDisc"],
             "DVD, remastered DVD, HD DVD and Blu-ray sets per series and season, the discs in each set, and which episodes are on which disc.",
             [
                 "What home-media formats were released for The Original Series?",
                 "How many discs are in the Next Generation season 3 Blu-ray set?",
+                "Which disc of the Next Generation Blu-rays has \"Yesterday's Enterprise\"?",
             ]),
     ];
 }

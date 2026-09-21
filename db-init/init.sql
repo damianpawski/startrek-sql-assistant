@@ -27,6 +27,9 @@ GO
 --   - ORDER BY ... NULLS LAST rewritten using an explicit CASE expression,
 --     since T-SQL has no NULLS LAST clause
 
+IF OBJECT_ID('dbo.episode_detail', 'V') IS NOT NULL DROP VIEW dbo.episode_detail;
+IF OBJECT_ID('dbo.episode_on_disc', 'V') IS NOT NULL DROP VIEW dbo.episode_on_disc;
+IF OBJECT_ID('dbo.series_summary', 'V') IS NOT NULL DROP VIEW dbo.series_summary;
 IF OBJECT_ID('dbo.cont', 'V') IS NOT NULL DROP VIEW dbo.cont;
 IF OBJECT_ID('dbo.dis', 'V') IS NOT NULL DROP VIEW dbo.dis;
 IF OBJECT_ID('dbo.ds9', 'V') IS NOT NULL DROP VIEW dbo.ds9;
@@ -62,10 +65,11 @@ IF OBJECT_ID('dbo.series', 'U') IS NOT NULL DROP TABLE dbo.series;
 GO
 
 CREATE TABLE dbo.series (
-    series_id  INT           NOT NULL PRIMARY KEY,
-    title      NVARCHAR(100) NOT NULL,
-    [begin]    DATE          NOT NULL,
-    [end]      DATE          NULL
+    series_id     INT           NOT NULL PRIMARY KEY,
+    title         NVARCHAR(100) NOT NULL,
+    abbreviation  NVARCHAR(10)  NOT NULL,
+    [begin]       DATE          NOT NULL,
+    [end]         DATE          NULL
 );
 GO
 
@@ -112,6 +116,80 @@ CREATE TABLE dbo.medium_volume_episode (
     medium_volume_id          INT  NOT NULL REFERENCES dbo.medium_volume(medium_volume_id),
     episode_id                INT  NOT NULL REFERENCES dbo.episode(episode_id)
 );
+GO
+
+-- Flattened views, exposed as DAB entities ---------------------------------
+--
+-- Not part of the original. DAB's MCP tools read one entity at a time and
+-- return flat rows (relationships are GraphQL-only), so a question that
+-- crosses tables costs the model a chain of calls, carrying ids from one to
+-- the next - which is where small models give up. Each view below turns one
+-- such chain into a single read. dab-config.json exposes them, and the
+-- SystemPrompt lists their columns: SystemPromptTests reads the SELECT lists
+-- here, so keep each column an `expr AS name` or a plain `alias.column`.
+
+-- Every episode with its series' title and abbreviation, plus the air year
+-- as an INT so it can be filtered and counted without a timestamp literal.
+CREATE VIEW dbo.episode_detail AS
+  SELECT e.episode_id,
+         e.series_id,
+         s.title AS series_title,
+         s.abbreviation AS series_abbreviation,
+         e.title,
+         e.season,
+         e.episode_number,
+         e.airdate,
+         YEAR(e.airdate) AS air_year,
+         e.remastered_airdate,
+         e.production_code,
+         e.stardate,
+         e.[date],
+         e.vignette
+    FROM dbo.episode e
+    JOIN dbo.series s ON s.series_id = e.series_id;
+GO
+
+-- One row per episode per disc: the four home-media tables joined into one,
+-- generalising the per-series *_dvd / *_bluray views below.
+CREATE VIEW dbo.episode_on_disc AS
+  SELECT mve.medium_volume_episode_id,
+         e.episode_id,
+         e.title,
+         e.series_id,
+         s.title AS series_title,
+         s.abbreviation AS series_abbreviation,
+         ms.media_set_id,
+         ms.type AS media_type,
+         ms.season,
+         mv.medium_volume_id,
+         mv.sequence AS disc
+    FROM dbo.medium_volume_episode mve
+    JOIN dbo.episode e ON e.episode_id = mve.episode_id
+    JOIN dbo.series s ON s.series_id = e.series_id
+    JOIN dbo.medium_volume mv ON mv.medium_volume_id = mve.medium_volume_id
+    JOIN dbo.media_set ms ON ms.media_set_id = mv.media_set_id;
+GO
+
+-- One row per series with its totals and span precomputed, because
+-- aggregate_records takes a single column and cannot group or subtract.
+-- run_days is null for a show still airing; season_count is 0 for one
+-- with no seasons (Star Trek Continues).
+CREATE VIEW dbo.series_summary AS
+  SELECT s.series_id,
+         s.title,
+         s.abbreviation,
+         s.[begin],
+         s.[end],
+         YEAR(s.[begin]) AS begin_year,
+         YEAR(s.[end]) AS end_year,
+         DATEDIFF(day, s.[begin], s.[end]) AS run_days,
+         COUNT(e.episode_id) AS episode_count,
+         COUNT(DISTINCT e.season) AS season_count,
+         MIN(e.airdate) AS first_airdate,
+         MAX(e.airdate) AS last_airdate
+    FROM dbo.series s
+    LEFT JOIN dbo.episode e ON e.series_id = s.series_id
+   GROUP BY s.series_id, s.title, s.abbreviation, s.[begin], s.[end];
 GO
 
 -- Premade views, one per series, matching the originals ------------------
@@ -300,22 +378,22 @@ GO
 USE StarTrek;
 GO
 
-INSERT INTO series (series_id, title, [begin], [end]) VALUES
-(1, N'Star Trek: The Original Series', N'1966-09-08', N'1969-06-03'),
-(2, N'Star Trek: The Animated Series', N'1973-09-08', N'1974-10-12'),
-(3, N'Star Trek: The Next Generation', N'1987-09-28', N'1994-05-23'),
-(4, N'Star Trek: Deep Space Nine', N'1993-01-03', N'1999-06-02'),
-(5, N'Star Trek: Voyager', N'1995-01-16', N'2001-05-23'),
-(6, N'Star Trek: Enterprise', N'2001-09-26', N'2005-05-13'),
-(7, N'Star Trek Continues', N'2013-05-26', N'2017-11-13'),
-(8, N'Star Trek: Discovery', N'2017-09-24', N'2024-05-30'),
-(9, N'Star Trek: Short Treks', N'2018-10-04', N'2020-01-09'),
-(10, N'Star Trek: Picard', N'2020-01-23', N'2023-04-20'),
-(11, N'Star Trek: Lower Decks', N'2020-08-06', N'2024-12-19'),
-(12, N'Star Trek: Prodigy', N'2021-10-28', N'2024-07-01'),
-(13, N'Star Trek: very Short Treks', N'2023-09-08', N'2023-10-04'),
-(14, N'Star Trek: Strange New Worlds', N'2022-05-05', null),
-(15, N'Star Trek: Starfleet Academy', N'2026-01-15', null);
+INSERT INTO series (series_id, title, abbreviation, [begin], [end]) VALUES
+(1, N'Star Trek: The Original Series', N'TOS', N'1966-09-08', N'1969-06-03'),
+(2, N'Star Trek: The Animated Series', N'TAS', N'1973-09-08', N'1974-10-12'),
+(3, N'Star Trek: The Next Generation', N'TNG', N'1987-09-28', N'1994-05-23'),
+(4, N'Star Trek: Deep Space Nine', N'DS9', N'1993-01-03', N'1999-06-02'),
+(5, N'Star Trek: Voyager', N'VOY', N'1995-01-16', N'2001-05-23'),
+(6, N'Star Trek: Enterprise', N'ENT', N'2001-09-26', N'2005-05-13'),
+(7, N'Star Trek Continues', N'STC', N'2013-05-26', N'2017-11-13'),
+(8, N'Star Trek: Discovery', N'DIS', N'2017-09-24', N'2024-05-30'),
+(9, N'Star Trek: Short Treks', N'ST', N'2018-10-04', N'2020-01-09'),
+(10, N'Star Trek: Picard', N'PIC', N'2020-01-23', N'2023-04-20'),
+(11, N'Star Trek: Lower Decks', N'LD', N'2020-08-06', N'2024-12-19'),
+(12, N'Star Trek: Prodigy', N'PRO', N'2021-10-28', N'2024-07-01'),
+(13, N'Star Trek: very Short Treks', N'VST', N'2023-09-08', N'2023-10-04'),
+(14, N'Star Trek: Strange New Worlds', N'SNW', N'2022-05-05', null),
+(15, N'Star Trek: Starfleet Academy', N'SFA', N'2026-01-15', null);
 
 INSERT INTO movie (movie_id, title, release_date, stardate) VALUES
 (1, N'Star Trek: The Motion Picture', N'1979-12-07', 7410.2),

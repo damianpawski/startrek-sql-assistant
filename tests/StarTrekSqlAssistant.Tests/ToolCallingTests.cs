@@ -157,6 +157,59 @@ public class ToolCallingTests
     }
 
     [Fact]
+    public async Task A_question_that_crosses_series_and_episodes_is_one_call_against_EpisodeDetail()
+    {
+        // Against the tables this is two calls - find DS9's series_id in Series,
+        // then count Episode rows carrying it - and a small model loses the id
+        // in between. EpisodeDetail has the abbreviation on every row.
+        var server = new FakeDabMcpServer();
+        using var client = new ScriptedChatClient()
+            .ThenCall("aggregate_records", new
+            {
+                entity = "EpisodeDetail",
+                function = "count",
+                field = "episode_id",
+                filter = "series_abbreviation eq 'DS9' and air_year eq 1993",
+            })
+            .Then(messages =>
+            {
+                var rows = messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Single();
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, rows.Result!.ToString()!));
+            });
+
+        var agent = TestAgent.BuildWithToolLoop(client, server);
+        var reply = await agent.AskAsync(Ask(agent, "How many DS9 episodes aired in 1993?"));
+
+        Assert.Single(server.Calls);
+        Assert.False(server.LastCall.Failed);
+        Assert.Contains("\"count\":2", reply);
+    }
+
+    [Fact]
+    public async Task SeriesSummary_answers_a_most_episodes_question_that_aggregate_records_cannot_group()
+    {
+        // aggregate_records has no group-by, so "which show has the most
+        // episodes" over the tables means counting every series separately.
+        // The view carries episode_count, so max plus one filtered read does it.
+        var server = new FakeDabMcpServer();
+        using var client = new ScriptedChatClient()
+            .ThenCall("aggregate_records", new { entity = "SeriesSummary", function = "max", field = "episode_count" })
+            .ThenCall("read_records", new { entity = "SeriesSummary", filter = "episode_count eq 178", select = "title,episode_count" })
+            .Then(messages =>
+            {
+                var rows = messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Last();
+                return new ChatResponse(new ChatMessage(ChatRole.Assistant, Titles(rows.Result!.ToString()!).Single()));
+            });
+
+        var agent = TestAgent.BuildWithToolLoop(client, server);
+        var reply = await agent.AskAsync(Ask(agent, "Which series has the most episodes?"));
+
+        Assert.All(server.Calls, call => Assert.False(call.Failed));
+        Assert.Contains("\"max\":178", server.Calls[0].Result);
+        Assert.Equal("Star Trek: The Next Generation", reply);
+    }
+
+    [Fact]
     public async Task Describe_entities_returns_no_fields_which_is_why_the_prompt_carries_the_schema()
     {
         // The DAB behaviour the whole SystemPrompt exists to work around: a

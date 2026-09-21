@@ -27,9 +27,10 @@ public class SystemPromptTests
     {
         // Guards the tests below: a parse that silently found nothing would make
         // every "for each entity" assertion pass vacuously.
-        Assert.Equal(6, Repo.DabEntities.Count);
-        Assert.Equal(6, Repo.TableColumns.Count);
-        Assert.Equal(6, PromptEntities().Count);
+        Assert.Equal(9, Repo.DabEntities.Count);
+        Assert.Equal(6, Repo.TableColumns.Count(t => !Repo.ViewNames.Contains(t.Key)));
+        Assert.Equal(9, PromptEntities().Count);
+        Assert.All(Repo.DabEntities.Values, source => Assert.Contains(source, Repo.TableColumns.Keys));
         Assert.NotEmpty(HomeTopics.All);
     }
 
@@ -91,6 +92,18 @@ public class SystemPromptTests
         // matches nothing, and the model concludes the show is not in the data.
         Assert.Contains("Star Trek: Deep Space Nine", Prompt);
         Assert.Contains("titles are stored in full", Prompt);
+    }
+
+    [Fact]
+    public void The_prompt_warns_that_title_apostrophes_are_curly_while_the_data_says_so()
+    {
+        // Every apostrophe in init.sql's titles is U+2019, and DAB's filter has
+        // no contains(), so "title eq 'Yesterday's Enterprise'" matches nothing.
+        // Pinned against the data: if a reload ever straightens them, this
+        // fails and the warning can go.
+        Assert.Contains('’', Repo.InitSql());
+        Assert.Contains("Yesterday’s", Prompt);
+        Assert.Contains("curly", Prompt);
     }
 
     [Fact]
@@ -190,8 +203,11 @@ internal static class Repo
     /// <summary>Entity name (as the model sees it) -> table it reads, from dab-config.json.</summary>
     public static IReadOnlyDictionary<string, string> DabEntities { get; } = ReadDabEntities();
 
-    /// <summary>Table name -> its columns, from init.sql.</summary>
+    /// <summary>Table or view name -> its columns, from init.sql.</summary>
     public static IReadOnlyDictionary<string, string[]> TableColumns { get; } = ReadTableColumns();
+
+    /// <summary>The names in <see cref="TableColumns"/> that are views rather than tables.</summary>
+    public static IReadOnlySet<string> ViewNames { get; } = ReadViewColumns().Keys.ToHashSet();
 
     private static string FindRoot()
     {
@@ -213,11 +229,11 @@ internal static class Repo
             entity => entity.Value.GetProperty("source").GetProperty("object").GetString()!.Replace("dbo.", ""));
     }
 
+    public static string InitSql() => File.ReadAllText(Path.Combine(Root, "db-init", "init.sql"));
+
     private static Dictionary<string, string[]> ReadTableColumns()
     {
-        var sql = File.ReadAllText(Path.Combine(Root, "db-init", "init.sql"));
-
-        return Regex.Matches(sql, @"CREATE TABLE dbo\.(?<table>\w+)\s*\((?<body>[^;]*?)\)\s*;", RegexOptions.Singleline)
+        var tables = Regex.Matches(InitSql(), @"CREATE TABLE dbo\.(?<table>\w+)\s*\((?<body>[^;]*?)\)\s*;", RegexOptions.Singleline)
             .ToDictionary(
                 table => table.Groups["table"].Value,
                 table => table.Groups["body"].Value
@@ -226,5 +242,48 @@ internal static class Repo
                     .Select(column => column.Trim('[', ']', ','))
                     .Where(column => column.Length > 0)
                     .ToArray());
+
+        foreach (var (view, columns) in ReadViewColumns())
+        {
+            tables.Add(view, columns);
+        }
+
+        return tables;
+    }
+
+    /// <summary>
+    /// View name -> the column names its first SELECT list produces: the alias
+    /// after AS where there is one, otherwise the column after the table alias.
+    /// Commas inside a function call (DATEDIFF(day, a, b)) are not separators.
+    /// </summary>
+    private static Dictionary<string, string[]> ReadViewColumns() =>
+        Regex.Matches(InitSql(), @"CREATE VIEW dbo\.(?<view>\w+) AS\s+SELECT\s+(?<list>.*?)\s+FROM\s", RegexOptions.Singleline)
+            .ToDictionary(
+                view => view.Groups["view"].Value,
+                view => SplitTopLevel(view.Groups["list"].Value)
+                    .Select(item => Regex.Match(item, @"\bAS\s+(?<alias>\S+)$", RegexOptions.IgnoreCase) is { Success: true } alias
+                        ? alias.Groups["alias"].Value
+                        : item.Split('.')[^1])
+                    .Select(column => column.Trim('[', ']'))
+                    .ToArray());
+
+    private static IEnumerable<string> SplitTopLevel(string list)
+    {
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < list.Length; i++)
+        {
+            switch (list[i])
+            {
+                case '(': depth++; break;
+                case ')': depth--; break;
+                case ',' when depth == 0:
+                    yield return list[start..i].Trim();
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        yield return list[start..].Trim();
     }
 }
