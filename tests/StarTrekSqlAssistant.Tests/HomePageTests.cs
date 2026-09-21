@@ -19,12 +19,16 @@ public class HomePageTests : BunitContext
     {
         public List<IReadOnlyList<ChatMessage>> Asked { get; } = [];
 
+        /// <summary>The token handed to the most recent call, so the page's cancellation is observable.</summary>
+        public CancellationToken LastToken { get; private set; }
+
         public List<ChatMessage> CreateConversation() =>
             [new ChatMessage(ChatRole.System, StarTrekPrompt.SystemPrompt)];
 
         public Task<string> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
         {
             Asked.Add([.. messages]);
+            LastToken = cancellationToken;
             return Task.FromResult(reply);
         }
     }
@@ -145,12 +149,95 @@ public class HomePageTests : BunitContext
         Assert.Null(page.Find("input").GetAttribute("disabled"));
     }
 
+    /// <summary>
+    /// An answer that stays pending until the test releases it - or until the
+    /// page cancels, which is how a real provider behaves when the circuit dies:
+    /// the in-flight call faults with an OperationCanceledException rather than
+    /// returning.
+    /// </summary>
     private sealed class GatedAgent(Task<string> reply) : IStarTrekAgent
     {
+        public CancellationToken Token { get; private set; }
+
         public List<ChatMessage> CreateConversation() =>
             [new ChatMessage(ChatRole.System, StarTrekPrompt.SystemPrompt)];
 
-        public Task<string> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default) =>
-            reply;
+        public Task<string> AskAsync(IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default)
+        {
+            Token = cancellationToken;
+            return reply.WaitAsync(cancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Disposing_the_page_cancels_the_question_in_flight()
+    {
+        // Closing the tab must not leave a local model answering for the rest of
+        // its timeout - up to OllamaOptions.TimeoutSeconds of GPU time for a
+        // reply nobody will ever see.
+        var agent = new GatedAgent(new TaskCompletionSource<string>().Task);
+        Services.AddSingleton<IStarTrekAgent>(agent);
+        JSInterop.Mode = JSRuntimeMode.Loose;
+        var page = Render<Home>();
+
+        page.Find("input").Input("Something slow.");
+        page.Find("form").Submit();
+        Assert.False(agent.Token.IsCancellationRequested);
+
+        // What Blazor does when the circuit is torn down. Disposing the rendered
+        // component handle alone does not reach the component instance.
+        await DisposeComponentsAsync();
+
+        Assert.True(agent.Token.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void A_long_conversation_sends_only_the_most_recent_window()
+    {
+        // The whole conversation is resent every turn, so without a window the
+        // prompt grows until the context overflows - and that arrives as
+        // AskAsync's generic error, the least diagnosable outcome the app has.
+        var agent = Register();
+        var page = Render<Home>();
+
+        for (var i = 1; i <= 8; i++)
+        {
+            page.Find("input").Input($"Question {i}?");
+            page.Find("form").Submit();
+        }
+
+        var sent = agent.Asked[^1];
+        Assert.Equal(11, sent.Count); // the system prompt plus ten messages
+        Assert.Equal(ChatRole.System, sent[0].Role);
+        Assert.Equal(StarTrekPrompt.SystemPrompt, sent[0].Text);
+        Assert.Equal("Question 8?", sent[^1].Text);
+
+        // Nothing is hidden from the user - only the payload is bounded.
+        Assert.Equal(16, page.FindAll(".bubble-row").Count);
+        Assert.Contains("Question 1?", page.Markup);
+    }
+
+    [Fact]
+    public void The_input_caps_how_much_can_be_typed()
+    {
+        Register();
+
+        var page = Render<Home>();
+
+        Assert.Equal("500", page.Find("input").GetAttribute("maxlength"));
+    }
+
+    [Fact]
+    public void An_over_length_question_is_truncated()
+    {
+        // maxlength stops a browser at the cap, so this path is reachable only
+        // by a hand-crafted circuit message. It is still the server's job.
+        var agent = Register();
+        var page = Render<Home>();
+
+        page.Find("input").Input(new string('a', 900));
+        page.Find("form").Submit();
+
+        Assert.Equal(500, Assert.Single(agent.Asked)[^1].Text?.Length);
     }
 }

@@ -1,4 +1,5 @@
 @page "/"
+@implements IDisposable
 @inject IStarTrekAgent Agent
 @inject IJSRuntime JS
 
@@ -68,6 +69,7 @@
         <input @bind="_input"
                @bind:event="oninput"
                placeholder="e.g. How many episodes of Deep Space Nine are there?"
+               maxlength="@MaxQuestionLength"
                disabled="@_isThinking"
                autofocus />
         <button type="submit" disabled="@(_isThinking || string.IsNullOrWhiteSpace(_input))">
@@ -85,6 +87,28 @@
     private bool _isThinking;
     private bool _shouldScroll;
     private ElementReference _logRef;
+
+    // Cancels the question in flight when the circuit is torn down. Without it a
+    // closed tab still costs a full OllamaOptions.TimeoutSeconds of GPU time,
+    // because IStarTrekAgent.AskAsync's token otherwise defaults to None.
+    private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>
+    /// Longest question accepted. Enforced twice: maxlength stops a browser at
+    /// the cap, and SendAsync truncates because the SignalR message a browser
+    /// sends is not the only thing that can arrive on this circuit.
+    /// </summary>
+    private const int MaxQuestionLength = 500;
+
+    /// <summary>
+    /// Non-system messages sent with a question. The whole conversation is
+    /// resent every turn, so an unbounded history grows the prompt - and the
+    /// cost, and the latency - without limit until the context window overflows,
+    /// which surfaces as AskAsync's generic "I hit an error" rather than as
+    /// anything diagnosable. Ten covers five exchanges, well past what any of
+    /// the sample questions need.
+    /// </summary>
+    private const int MaxHistoryMessages = 10;
 
     /// <summary>One card on the empty-state panel: an entity the model can query,
     /// the columns it holds, and questions that are answerable from those columns.</summary>
@@ -137,26 +161,76 @@
             return;
         }
 
+        // Defence in depth only - the input's maxlength already stops a browser
+        // here, so this branch is reachable only by a hand-crafted circuit message.
+        if (question.Length > MaxQuestionLength)
+        {
+            question = question[..MaxQuestionLength];
+        }
+
         _input = "";
         _messages.Add(new ChatMessage(ChatRole.User, question));
         _isThinking = true;
         _shouldScroll = true;
         StateHasChanged();
 
-        var reply = await Agent.AskAsync(_messages);
+        try
+        {
+            var reply = await Agent.AskAsync(ConversationToSend(), _cts.Token);
 
-        _messages.Add(new ChatMessage(ChatRole.Assistant, reply));
-        _isThinking = false;
-        _shouldScroll = true;
+            _messages.Add(new ChatMessage(ChatRole.Assistant, reply));
+            _shouldScroll = true;
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            // The circuit is gone. Returning here skips the StateHasChanged
+            // below - there is no renderer left to call it on.
+            return;
+        }
+        finally
+        {
+            // In a finally, not after the await: until cancellation existed this
+            // relied on AskAsync catching every exception itself, which made the
+            // input box's correctness depend on a different file's catch blocks.
+            _isThinking = false;
+        }
+
         StateHasChanged();
     }
 
+    /// <summary>
+    /// The window actually sent to the model: the system prompt - which is the
+    /// only schema the model ever sees, so it can never be dropped - plus the
+    /// most recent exchanges. <c>_messages</c> itself is left whole, so the page
+    /// still shows the full transcript.
+    /// </summary>
+    private List<ChatMessage> ConversationToSend() =>
+        _messages.Count <= MaxHistoryMessages + 1
+            ? _messages
+            : [_messages[0], .. _messages.Skip(1).TakeLast(MaxHistoryMessages)];
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_shouldScroll)
+        if (!_shouldScroll)
         {
-            _shouldScroll = false;
+            return;
+        }
+
+        _shouldScroll = false;
+        try
+        {
             await JS.InvokeVoidAsync("startrekSqlAssistant.scrollToBottom", _logRef);
         }
+        catch (JSDisconnectedException)
+        {
+            // The circuit went away between the render and the interop call.
+            // There is no browser left to scroll; this is not a fault.
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }
