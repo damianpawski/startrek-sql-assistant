@@ -1,3 +1,6 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using OpenTelemetry;
 using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
@@ -45,7 +48,8 @@ builder.Services
     .AddValidatedOptions<OllamaOptions, OllamaOptionsValidator>(builder.Configuration, "Ollama")
     .AddValidatedOptions<OpenAIOptions, OpenAIOptionsValidator>(builder.Configuration, "OpenAI")
     .AddValidatedOptions<AnthropicOptions, AnthropicOptionsValidator>(builder.Configuration, "Anthropic")
-    .AddValidatedOptions<TelemetryOptions, TelemetryOptionsValidator>(builder.Configuration, "Telemetry");
+    .AddValidatedOptions<TelemetryOptions, TelemetryOptionsValidator>(builder.Configuration, "Telemetry")
+    .AddValidatedOptions<RateLimitOptions, RateLimitOptionsValidator>(builder.Configuration, "RateLimit");
 
 // Everything the agent depends on is registered as an interface, so the agent
 // can be built over a scripted chat client and a fake tool server in tests.
@@ -56,7 +60,55 @@ builder.Services.AddSingleton<IChatClientFactory, ChatClientFactory>();
 builder.Services.AddSingleton<DabMcpToolProvider>();
 builder.Services.AddSingleton<IMcpToolProvider>(sp => sp.GetRequiredService<DabMcpToolProvider>());
 builder.Services.AddSingleton<IMcpConnectionState>(sp => sp.GetRequiredService<DabMcpToolProvider>());
+// Singleton because the limits are app-wide: one budget of questions a minute
+// and one in-flight slot, shared by every circuit. A per-circuit instance would
+// hand each new tab a fresh budget, which is no limit at all.
+builder.Services.AddSingleton<QuestionLimiter>();
 builder.Services.AddSingleton<IStarTrekAgent, StarTrekAgentService>();
+
+// Page loads, not questions. Questions travel over the SignalR connection a
+// page opens once, so they never reach HTTP middleware - QuestionLimiter,
+// inside AskAsync, is what limits those. This caps the other thing a flood of
+// requests costs: every full page load opens a circuit that holds server memory
+// for as long as the tab lives.
+//
+// Only real page loads are counted, and the exclusions are load-bearing.
+// /_blazor is the circuit's own traffic: over WebSockets it is one request, but
+// a browser that falls back to long polling sends every circuit message as an
+// HTTP request to it, and limiting those would throttle a live conversation.
+// /health is polled. Everything else - app.css, blazor.web.js, other static
+// assets - is recognised by not asking for HTML.
+//
+// Partitioned by remote address. Under docker compose every browser arrives from
+// Docker's gateway address, so there this is effectively one shared limit -
+// harmless for a page-load cap, and the reason the question limits are
+// deliberately not per visitor either.
+builder.Services.AddRateLimiter(_ => { });
+builder.Services.AddOptions<RateLimiterOptions>()
+    .Configure<IOptions<RateLimitOptions>>((options, limits) =>
+    {
+        var pageLoadsPerMinute = limits.Value.PageLoadsPerMinute;
+
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = (context, cancellationToken) =>
+        {
+            context.HttpContext.Response.ContentType = "text/plain";
+            return new ValueTask(context.HttpContext.Response.WriteAsync(
+                "Too many page loads from this address. Wait a minute and reload.", cancellationToken));
+        };
+
+        options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+            IsPageLoad(context.Request)
+                ? RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = pageLoadsPerMinute,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    })
+                : RateLimitPartition.GetNoLimiter("not-a-page-load"));
+    });
 
 // Validates the provider config at startup and opens the MCP connection in the
 // background - see McpWarmupService for why only the first of those is allowed
@@ -126,6 +178,10 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
 
+// Early, so a rejected page load costs as little as possible. Only the global
+// page-load limiter above is configured; no endpoint carries a policy.
+app.UseRateLimiter();
+
 app.UseAntiforgery();
 
 // MapStaticAssets, not UseStaticFiles: since .NET 9 the framework assets -
@@ -145,3 +201,13 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+// A browser navigation - the request that renders a page and opens a circuit.
+// Recognised by asking for HTML, which is what separates it from the static
+// assets that page then pulls in. The /_blazor and /health exclusions are
+// explained where the limiter is configured above.
+static bool IsPageLoad(HttpRequest request) =>
+    HttpMethods.IsGet(request.Method)
+    && !request.Path.StartsWithSegments("/_blazor")
+    && !request.Path.StartsWithSegments("/health")
+    && request.Headers.Accept.ToString().Contains("text/html", StringComparison.OrdinalIgnoreCase);

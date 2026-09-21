@@ -145,6 +145,43 @@ public class OptionsValidationTests
         Assert.True(result.Succeeded);
     }
 
+    [Theory]
+    [InlineData(0, 1, 20, "RateLimit:QuestionsPerMinute")]
+    [InlineData(5, 0, 20, "RateLimit:ConcurrentQuestions")]
+    [InlineData(5, 1, 0, "RateLimit:PageLoadsPerMinute")]
+    public void A_zero_limit_is_rejected_rather_than_read_as_unlimited(
+        int questionsPerMinute, int concurrentQuestions, int pageLoadsPerMinute, string setting)
+    {
+        // Zero would not switch the limit off - it would mean nobody can ask
+        // anything, and the app would look broken rather than protected.
+        var result = new RateLimitOptionsValidator().Validate(null, new RateLimitOptions
+        {
+            QuestionsPerMinute = questionsPerMinute,
+            ConcurrentQuestions = concurrentQuestions,
+            PageLoadsPerMinute = pageLoadsPerMinute,
+        });
+
+        Assert.Contains(setting, Assert.Single(result.Failures!));
+    }
+
+    [Fact]
+    public void The_shipped_appsettings_carries_the_tight_question_limits()
+    {
+        // The defaults protect the local GPU. The class defaults and the file
+        // must say the same thing, or which one wins depends on whether the
+        // file is present.
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(Repo.Root, "src", "StarTrekSqlAssistant.Web", "appsettings.json"))
+            .Build();
+
+        var shipped = Bind<RateLimitOptions>(configuration, "RateLimit");
+        var defaults = new RateLimitOptions();
+
+        Assert.Equal(defaults.QuestionsPerMinute, shipped.QuestionsPerMinute);
+        Assert.Equal(defaults.ConcurrentQuestions, shipped.ConcurrentQuestions);
+        Assert.Equal(defaults.PageLoadsPerMinute, shipped.PageLoadsPerMinute);
+    }
+
     // ---- The configuration this repo actually ships ------------------------
 
     [Fact]
@@ -163,6 +200,7 @@ public class OptionsValidationTests
         AssertValid(new DabOptionsValidator().Validate(null, Bind<DabOptions>(configuration, "Dab")));
         AssertValid(new ModelOptionsValidator().Validate(null, model.Value));
         AssertValid(new TelemetryOptionsValidator().Validate(null, Bind<TelemetryOptions>(configuration, "Telemetry")));
+        AssertValid(new RateLimitOptionsValidator().Validate(null, Bind<RateLimitOptions>(configuration, "RateLimit")));
         AssertValid(new OllamaOptionsValidator(model).Validate(null, Bind<OllamaOptions>(configuration, "Ollama")));
 
         // Empty in the file, and skipped rather than failed because Ollama is

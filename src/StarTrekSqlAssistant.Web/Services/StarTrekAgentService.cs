@@ -25,6 +25,7 @@ namespace StarTrekSqlAssistant.Web.Services;
 public sealed class StarTrekAgentService : IStarTrekAgent, IAsyncDisposable
 {
     private readonly IMcpToolProvider _toolProvider;
+    private readonly QuestionLimiter _limiter;
     private readonly ChatBackend _backend;
     private readonly IChatClient _chatClient;
     private readonly ILogger<StarTrekAgentService> _logger;
@@ -32,10 +33,12 @@ public sealed class StarTrekAgentService : IStarTrekAgent, IAsyncDisposable
     public StarTrekAgentService(
         IChatClientFactory chatClientFactory,
         IMcpToolProvider toolProvider,
+        QuestionLimiter limiter,
         ILogger<StarTrekAgentService> logger)
     {
         _logger = logger;
         _toolProvider = toolProvider;
+        _limiter = limiter;
 
         _backend = chatClientFactory.Create();
         _chatClient = _backend.Client;
@@ -70,6 +73,26 @@ public sealed class StarTrekAgentService : IStarTrekAgent, IAsyncDisposable
         // Telemetry:CaptureMessageContent, which this does not consult.
         var outcome = AgentTelemetry.Outcomes.Cancelled;
         activity?.SetTag(AgentTelemetry.Tags.QuestionLength, messages[^1].Text?.Length ?? 0);
+
+        // Before anything that implies the question is being answered - the
+        // active counter, the "asking {Backend}" log line - because a rejected one
+        // is not. Held for the whole method: disposing it is what frees the
+        // in-flight slot, so it must outlive the model call. See QuestionLimiter
+        // for why this lives here rather than in HTTP middleware.
+        using var admission = _limiter.TryAdmit();
+        if (!admission.IsAdmitted)
+        {
+            outcome = admission.RejectedAs!;
+            _logger.LogInformation("Question turned away ({Outcome})", outcome);
+            Record(activity, started, outcome);
+            return outcome == AgentTelemetry.Outcomes.Busy
+                ? "Another question is being answered right now, and this assistant takes one at a time. " +
+                  "Try again when it finishes."
+                // "Within", not "in": a sliding window frees a slot somewhere in
+                // the next minute and cannot say exactly when - see QuestionLimiter.
+                : $"This assistant answers at most {_limiter.QuestionsPerMinute} questions a minute, and " +
+                  "that limit has been reached. Try again within a minute.";
+        }
 
         // Logged and counted before the slow part, not after: a question that is
         // still being answered produces no span (spans export on completion) and
@@ -160,13 +183,24 @@ public sealed class StarTrekAgentService : IStarTrekAgent, IAsyncDisposable
             // In a finally so no return path can forget, including the cancelled
             // one that never reaches a catch block at all.
             AgentTelemetry.QuestionsActive.Add(-1);
-
-            var tag = new KeyValuePair<string, object?>(AgentTelemetry.Tags.Outcome, outcome);
-            activity?.SetTag(AgentTelemetry.Tags.Outcome, outcome);
-            AgentTelemetry.Questions.Add(1, tag);
-            AgentTelemetry.QuestionDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tag);
+            Record(activity, started, outcome);
         }
     }
+
+    /// <summary>
+    /// Tags the span and counts the question under its outcome. One method so
+    /// the admitted path (in AskAsync's finally) and the turned-away path record
+    /// a question identically - two copies of these lines is how a dashboard
+    /// ends up counting one kind of question and quietly missing the other.
+    /// </summary>
+    private static void Record(Activity? activity, long started, string outcome)
+    {
+        var tag = new KeyValuePair<string, object?>(AgentTelemetry.Tags.Outcome, outcome);
+        activity?.SetTag(AgentTelemetry.Tags.Outcome, outcome);
+        AgentTelemetry.Questions.Add(1, tag);
+        AgentTelemetry.QuestionDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tag);
+    }
+
 
     /// <summary>
     /// Marks the span failed. The friendly string the user gets back is not an

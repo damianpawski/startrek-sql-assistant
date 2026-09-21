@@ -142,9 +142,18 @@ easy to inspect — and each one is a reason not to expose this stack:
   `anonymous`/`read`, so a dedicated read-only login is the right call for
   anything longer-lived than a demo.
 - **There is no authentication anywhere.** Every DAB entity is
-  `anonymous`/`read`, and the chat app has no login and no rate limiting. With
-  `MODEL_PROVIDER` set to OpenAI or Anthropic, anyone who can reach port 8080
-  is spending your API credits.
+  `anonymous`/`read`, and the chat app has no login. With `MODEL_PROVIDER` set
+  to OpenAI or Anthropic, anyone who can reach port 8080 is spending your API
+  credits — though no faster than the rate limit below allows.
+- **Questions are rate limited, tightly, to protect the local GPU.** At most 5
+  questions a minute and 1 at a time, across every visitor combined. A local
+  model answers roughly one question at a time and parallel questions only slow
+  each other down, so these limits keep the GPU usable; with a hosted provider
+  they cap spend instead. A question over either limit gets a chat reply saying
+  so and never reaches the model. Tune them in the `RateLimit` section of
+  `appsettings.json` — but raising `ConcurrentQuestions` past what your GPU can
+  run in parallel defeats the point. The limit is app-wide rather than per
+  visitor, which also means one person can use the whole budget.
 - **The Aspire Dashboard has its login turned off.**
   `DASHBOARD__FRONTEND__AUTHMODE: Unsecured` in `docker-compose.yml` drops the
   token prompt so the link above just works. The dashboard shows every request

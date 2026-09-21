@@ -44,15 +44,35 @@ public sealed class CapturingLogger<T> : ILogger<T>
 public static class TestAgent
 {
     /// <summary>The agent with a scripted model and whatever tool source is given.</summary>
+    /// <param name="limiter">
+    /// Defaults to <see cref="Unlimited"/>, not to the app's real limits: a suite
+    /// that asks more than five questions, or runs two at once, would otherwise
+    /// fail on the rate limit rather than on whatever it is actually testing.
+    /// Pass <see cref="Limited"/> to test the limits themselves.
+    /// </param>
     public static StarTrekAgentService Build(
         IChatClient chatClient,
         IMcpToolProvider? toolProvider = null,
         string backendDescription = "Stub",
         int timeoutSeconds = 30,
-        ILogger<StarTrekAgentService>? logger = null) =>
+        ILogger<StarTrekAgentService>? logger = null,
+        QuestionLimiter? limiter = null) =>
         new(new StubChatClientFactory(chatClient, backendDescription, timeoutSeconds),
             toolProvider ?? new FakeDabMcpServer().AsToolProvider(),
+            limiter ?? Unlimited(),
             logger ?? NullLogger<StarTrekAgentService>.Instance);
+
+    /// <summary>A limiter no test will reach by accident.</summary>
+    public static QuestionLimiter Unlimited() =>
+        Limited(questionsPerMinute: 100_000, concurrentQuestions: 1_000);
+
+    /// <summary>A limiter with the given limits, for testing the limits.</summary>
+    public static QuestionLimiter Limited(int questionsPerMinute = 5, int concurrentQuestions = 1) =>
+        new(Microsoft.Extensions.Options.Options.Create(new RateLimitOptions
+        {
+            QuestionsPerMinute = questionsPerMinute,
+            ConcurrentQuestions = concurrentQuestions,
+        }));
 
     /// <summary>
     /// The agent with the app's real tool-calling loop around the scripted

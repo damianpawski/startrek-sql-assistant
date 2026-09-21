@@ -97,6 +97,22 @@ public sealed class TelemetryOptionsValidator : IValidateOptions<TelemetryOption
 }
 
 /// <summary>
+/// The question and page-load limits. Always validated, whichever provider is
+/// selected - they protect the local GPU under Ollama and API spend under a
+/// hosted provider, so there is no configuration in which they stop applying.
+/// A zero here would not mean "unlimited"; it would mean nobody can ask
+/// anything, and the app would look broken rather than protected.
+/// </summary>
+public sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOptions>
+{
+    public ValidateOptionsResult Validate(string? name, RateLimitOptions options) =>
+        OptionChecks.Problems(
+            OptionChecks.Positive(options.QuestionsPerMinute, "RateLimit:QuestionsPerMinute"),
+            OptionChecks.Positive(options.ConcurrentQuestions, "RateLimit:ConcurrentQuestions"),
+            OptionChecks.Positive(options.PageLoadsPerMinute, "RateLimit:PageLoadsPerMinute"));
+}
+
+/// <summary>
 /// Ollama, but only when it is the selected provider.
 ///
 /// This conditionality is the whole difficulty of validating this app's

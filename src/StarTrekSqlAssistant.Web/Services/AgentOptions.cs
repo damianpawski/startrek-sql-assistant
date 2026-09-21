@@ -138,3 +138,43 @@ public class AnthropicOptions
 
     public int TimeoutSeconds { get; set; } = 300;
 }
+
+/// <summary>
+/// How many questions the app will take on. Bound from the "RateLimit" config
+/// section (env vars: RateLimit__QuestionsPerMinute, ...).
+///
+/// Deliberately tight, and app-wide rather than per visitor. The default
+/// provider is a model running on this machine's own GPU: it answers roughly
+/// one question at a time, a single question can hold it for minutes, and
+/// parallel questions do not run faster - they queue inside Ollama and make
+/// every answer slower. These limits exist to keep that GPU usable. With a
+/// hosted provider the same limits cap API spend instead.
+/// </summary>
+public class RateLimitOptions
+{
+    /// <summary>
+    /// Questions admitted per rolling minute, across every visitor combined.
+    /// This is the cap on total work - five a minute is a comfortable pace for
+    /// one person and a hard ceiling on what a script can make the GPU do.
+    /// </summary>
+    public int QuestionsPerMinute { get; set; } = 5;
+
+    /// <summary>
+    /// Questions being answered at the same moment. One, because the rate
+    /// limit alone does not protect a local GPU: five questions arriving in the
+    /// same second are all within "five a minute", and would all land on the
+    /// model at once. A question that finds the slot taken is turned away
+    /// immediately rather than queued - a queued question shows the same
+    /// "thinking" dots as one being answered, so a queue would look like a very
+    /// slow model.
+    /// </summary>
+    public int ConcurrentQuestions { get; set; } = 1;
+
+    /// <summary>
+    /// Full page loads per minute from one address. Unrelated to the GPU: each
+    /// page load opens a Blazor circuit, which holds server memory for as long
+    /// as the tab lives, so this caps how fast circuits can be created. Loose
+    /// enough that reloading while developing never trips it.
+    /// </summary>
+    public int PageLoadsPerMinute { get; set; } = 20;
+}

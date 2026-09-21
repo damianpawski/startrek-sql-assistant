@@ -89,6 +89,12 @@ public static class AgentTelemetry
         public const string Error = "error";
         public const string Cancelled = "cancelled";
 
+        // Turned away by QuestionLimiter before reaching the model. Two outcomes
+        // rather than one because they call for different responses: "busy"
+        // means wait a moment, "rate_limited" means the minute's budget is gone.
+        public const string Busy = "busy";
+        public const string RateLimited = "rate_limited";
+
         // Tool outcomes. ConnectionLost is shared: it is what the tool throws
         // and what the question it was part of ends as.
         public const string Ok = "ok";
