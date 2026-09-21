@@ -112,7 +112,11 @@ services:
   # Docker Engine too, not just Docker Desktop).
   blazor-app:
     build:
-      context: ./src/StarTrekSqlAssistant.Web
+      # The repository root, not the project folder: the csproj takes its
+      # package versions from Directory.Packages.props and its TargetFramework
+      # from Directory.Build.props, and both live at the root.
+      context: .
+      dockerfile: src/StarTrekSqlAssistant.Web/Dockerfile
     depends_on:
       - dab
       - aspire-dashboard

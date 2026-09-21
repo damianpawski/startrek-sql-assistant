@@ -1,0 +1,31 @@
+# Docker reads .dockerignore from the root of the BUILD CONTEXT, which is now
+# this directory (docker-compose.yml sets `context: .`). This file is therefore
+# the one that counts; src/StarTrekSqlAssistant.Web/.dockerignore is kept for
+# anyone who still builds with that folder as the context, but is not consulted
+# by the compose or CI builds.
+#
+# Excluding bin/ and obj/ is not cosmetic. Without it the Windows NuGet caches
+# under them are copied into the Linux image and the restore fails with a
+# confusing PackagingException about a fallback package folder.
+**/bin/
+**/obj/
+
+# IDE and VCS state.
+**/.vs/
+**/.vscode/
+**/*.user
+.git/
+.github/
+
+# Not part of the app image: the test project, the database seed, the DAB
+# config (bind-mounted into its own container at runtime), and the docs.
+tests/
+db-init/
+dab/
+docs/
+*.md
+LICENSE
+
+# Never let a local .env reach an image layer.
+.env
+.env.local

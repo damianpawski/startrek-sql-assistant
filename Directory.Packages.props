@@ -1,0 +1,47 @@
+<Project>
+
+  <!--
+    Central package management: versions live here, and a .csproj names a
+    package without one. With two projects that already means the two cannot
+    drift onto different versions of a shared dependency and disagree at
+    runtime; the reason to do it now rather than at the third project is that
+    retrofitting it later means touching every csproj at once.
+
+    Why each package is needed stays next to its PackageReference, in the
+    project that needs it. This file answers only "which version".
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Model providers and the MCP client. -->
+  <ItemGroup>
+    <PackageVersion Include="Anthropic" Version="12.46.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.9.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="OllamaSharp" Version="5.4.30" />
+    <PackageVersion Include="OpenAI" Version="2.12.0" />
+  </ItemGroup>
+
+  <!-- Telemetry. Kept on one version deliberately: the OpenTelemetry packages
+       ship together and mixing versions across them is a known source of
+       confusing load-time failures. -->
+  <ItemGroup>
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.18.0" />
+    <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.18.0" />
+  </ItemGroup>
+
+  <!-- Testing. -->
+  <ItemGroup>
+    <PackageVersion Include="bunit" Version="2.11.3" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+</Project>

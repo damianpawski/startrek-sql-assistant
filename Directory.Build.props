@@ -1,0 +1,37 @@
+<Project>
+
+  <!--
+    Settings every project in this repo shares. Imported automatically by the
+    SDK before each .csproj body, so a project can still override any of it.
+
+    There are only two projects today, but the point is that the answer to
+    "what C# are we on, and are warnings allowed?" lives in one place rather
+    than being re-decided, and drifting, per project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      The build is at zero warnings, so this costs nothing today and is purely
+      a ratchet: it stops the first warning from being ignored, which is how a
+      build ends up with fifty of them and nobody reading any.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!--
+      Except the NuGet audit warnings. Those fire when an advisory is published
+      against a package - including a transitive one nothing here chose - so as
+      errors they would break CI on an unrelated change, at a moment when the
+      fix is to bump a dependency rather than to fix the code under review.
+      They still show up as warnings, which is what they are: something to act
+      on soon, not a reason to reject the commit in front of you.
+    -->
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+  </PropertyGroup>
+
+</Project>

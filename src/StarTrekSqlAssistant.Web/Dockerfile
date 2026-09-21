@@ -1,17 +1,26 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY StarTrekSqlAssistant.Web.csproj .
-RUN dotnet restore
+# The build context is the REPOSITORY ROOT, not this folder. It has to be:
+# the csproj names its packages without versions and without a TargetFramework,
+# both of which come from Directory.Packages.props and Directory.Build.props at
+# the root. MSBuild finds those by walking up from the project directory, so
+# they must sit above it inside the image too - hence the src/... paths below.
+#
+# Copied before the sources, and separately from them, so that editing a .razor
+# file does not invalidate the restore layer.
+COPY Directory.Build.props Directory.Packages.props ./
+COPY src/StarTrekSqlAssistant.Web/StarTrekSqlAssistant.Web.csproj src/StarTrekSqlAssistant.Web/
+RUN dotnet restore src/StarTrekSqlAssistant.Web/StarTrekSqlAssistant.Web.csproj
 
-COPY . .
+COPY src/StarTrekSqlAssistant.Web/ src/StarTrekSqlAssistant.Web/
 # No --no-restore here. The restore above runs with only the .csproj present,
 # and the SDK adds Microsoft.AspNetCore.App.Internal.Assets - the package that
 # carries _framework/blazor.web.js - only when it can see .razor files. Publishing
 # --no-restore against that first pass silently produces a static-web-assets
 # manifest with no _framework entries, so blazor.web.js 404s at runtime and the
 # page never becomes interactive. This second restore is cache-warm and cheap.
-RUN dotnet publish -c Release -o /app
+RUN dotnet publish src/StarTrekSqlAssistant.Web/StarTrekSqlAssistant.Web.csproj -c Release -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app

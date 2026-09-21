@@ -45,8 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The build context is the project folder, exactly as docker-compose.yml
-      # sets it - the Dockerfile's `COPY StarTrekSqlAssistant.Web.csproj .`
-      # depends on that, as does .dockerignore keeping bin/ and obj/ out.
+      # The build context is the repository root, exactly as docker-compose.yml
+      # sets it: the Dockerfile copies Directory.Build.props and
+      # Directory.Packages.props before the csproj, because the csproj names
+      # neither its TargetFramework nor its package versions.
       - name: Build the Blazor app image
-        run: docker build -t startrek-sql-assistant:ci ./src/StarTrekSqlAssistant.Web
+        run: docker build -t startrek-sql-assistant:ci -f src/StarTrekSqlAssistant.Web/Dockerfile .
