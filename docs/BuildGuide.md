@@ -139,8 +139,8 @@ The original SQLite source also ships ~24 convenience views, one per series
 (`tng`, `ds9`, `voy`, ...). Those were ported too — mechanically the same
 work, plus rewriting each view's joins. One honest simplification: a few of
 the original views ordered results with `ORDER BY ... NULLS LAST`, which
-T-SQL has no equivalent for. Since none of these views are wired into DAB (only
-the six base tables are — see Part 2), the ordering was dropped rather than
+T-SQL has no equivalent for. Since none of these per-series views are wired
+into DAB (see Part 2), the ordering was dropped rather than
 reimplemented with an explicit `CASE WHEN ... IS NULL THEN 1 ELSE 0 END`
 expression. If you start querying these views directly, that's where to add
 it back.
@@ -238,6 +238,24 @@ Three things worth understanding about this file:
 All six tables (`Series`, `Episode`, `Movie`, `MediaSet`, `MediumVolume`,
 `MediumVolumeEpisode`) are configured the same way — read-only, anonymous
 role, one paragraph description each. See the full file for all six.
+
+Three more entities were added later, and they are views rather than tables:
+`EpisodeDetail`, `EpisodeOnDisc` and `SeriesSummary`, over `dbo.episode_detail`,
+`dbo.episode_on_disc` and `dbo.series_summary` in `init.sql`. The reason is the
+shape of the MCP tools: they read one entity at a time and return flat rows, and
+`relationships` only affect GraphQL, so "which series has the most episodes" or
+"which disc is this episode on" otherwise takes a chain of calls with the model
+carrying ids between them. Each view is the join already done, so each of those
+questions is one call. A view entity is configured like a table one except for
+`key-fields`, which DAB requires because a view has no primary key to infer:
+
+```json
+"EpisodeDetail": {
+  "source": { "object": "dbo.episode_detail", "type": "view", "key-fields": [ "episode_id" ] },
+  "description": "Every episode with its series' title and abbreviation already attached, plus air_year as a number. ...",
+  "permissions": [ { "role": "anonymous", "actions": ["read"] } ]
+}
+```
 
 ---
 
@@ -473,7 +491,7 @@ tool yourself, and make a second call with the result. With it, all of that
 happens inside the one `GetResponseAsync` call.
 
 The real file adds two things this sketch skips: a system prompt describing
-the six entities so the model doesn't have to guess the schema, and a
+all nine entities so the model doesn't have to guess the schema, and a
 lazy/retry-safe connection (so the app doesn't crash if it starts before DAB
 is ready — it just tries again on the next question).
 
@@ -516,8 +534,9 @@ here's the order that avoids backtracking:
    `db-init/init.sql` directly).
 2. **Write `db-init/init.sql`** — the create-database preamble, six tables,
    the views, then the data. (Section 4.)
-3. **Write `dab/dab-config.json`** — one entity block per table, all
-   `anonymous`/`read`. (Section 5.)
+3. **Write `dab/dab-config.json`** — one entity block per table, plus one per
+   flattened view (those need `key-fields`), all `anonymous`/`read`.
+   (Section 5.)
 4. **Scaffold the Blazor project** with `dotnet new blazor` and add the
    three NuGet packages. (Section 7.)
 5. **Write `Services/StarTrekAgentService.cs`, `Program.cs`, and
@@ -574,15 +593,20 @@ Real errors hit while building this, in case they recur:
 | `sql-init` exits **0** but every table is empty | `sqlcmd` without `-b` returns success even when the script raised errors | Add `-b` to the `sql-init` entrypoint, then read `docker compose logs sql-init` for the real error |
 | `Invalid column name 'False'` during the data load | SQLite `True`/`False` literals survived the port; T-SQL `BIT` takes `1`/`0`, and a bare `True` parses as a column reference | Replace with `1`/`0`. Note the whole data section is a single batch (no `GO`), so this one compile error rolls back *every* insert — that's why the symptom is an entirely empty database, not one bad column |
 | `Conversion failed when converting date and/or time from character string` | `episode.[date]` was ported to `DATETIME2(0)`, but a few in-universe dates are month-precision (`'2256-11'`) and no SQL date type accepts them | Keep that column `NVARCHAR` — it's `TEXT` in the SQLite source for exactly this reason |
+| A title filter returns `{"value":[]}` for an episode you know is there | Every apostrophe in the data is the curly `’` (U+2019), so `title eq 'Yesterday's Enterprise'` matches nothing — and DAB's filter has no `contains()` to fall back on (`contains(title,'Enterprise')` is a 400) | Filter on `series_abbreviation` and `season` and pick the row from the result; the `SystemPrompt` tells the model to do the same |
 | `Error converting data type nvarchar to numeric` on an `INSERT` | One multi-row `VALUES` column mixed bare numerics with a quoted non-numeric string (`stardate` `1739.12` alongside `N'2291.6, 58460.1'`). Type precedence resolves the column to numeric and the string row fails | Quote every value in that column so it resolves as `nvarchar` |
 
 ---
 
 ## 10. Extending this
 
-- Expose the per-series views (`tng`, `voy`, `ds9`, ...) as their own DAB
-  entities for narrower, purpose-built tools instead of always filtering
-  `Episode` by `series_id`.
+- Load data this database doesn't have — cast, crew, plot summaries,
+  ratings — since that, not the tool surface, is what now bounds the
+  questions that can be answered at all. The pre-joined views (Part 2)
+  already removed the multi-call chains that bounded the rest.
+- Add a stored procedure and expose it as an entity, for a question a filter
+  can't express — `stardate` is `NVARCHAR`, so a numeric range over it is the
+  obvious candidate. DAB serves those through its `execute_entity` MCP tool.
 - Add the `relationships` blocks described in Part 2 for richer GraphQL
   queries.
 - Swap Ollama for Azure OpenAI, OpenAI, or Anthropic — only the constructor
