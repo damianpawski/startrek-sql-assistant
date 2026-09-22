@@ -4,6 +4,8 @@ Ask plain-English questions about the Star Trek franchise (series, episodes,
 movies, home-media releases) and get answers backed by a real SQL Server
 query — not the model guessing from memory.
 
+![The Star Trek SQL Assistant chat page, showing the four topic cards and the sample questions each one can answer](docs/images/homepage.png)
+
 **This is a proof of concept.** It exists to demonstrate one technique — having
 a model answer database questions by calling Data API builder's MCP tools
 instead of writing SQL — with enough real infrastructure around it that the
@@ -25,9 +27,15 @@ and the UI are identical whichever you use. See
 
 The model never writes SQL. It picks from a small set of MCP tools
 (`read_records`, `aggregate_records`, `describe_entities`, ...) that DAB
-exposes for the `Series`, `Episode`, `Movie`, `MediaSet`, `MediumVolume`, and
-`MediumVolumeEpisode` entities; DAB's own query builder turns that tool call
-into a deterministic, parameterized T-SQL query.
+exposes for nine entities — the six tables (`Series`, `Episode`, `Movie`,
+`MediaSet`, `MediumVolume`, `MediumVolumeEpisode`) and three pre-joined views
+(`EpisodeDetail`, `EpisodeOnDisc`, `SeriesSummary`); DAB's own query builder
+turns that tool call into a deterministic, parameterized T-SQL query.
+
+Those views exist because an MCP tool reads **one entity at a time** and
+relationships are GraphQL-only, so a question spanning tables otherwise costs a
+chain of calls with the model carrying ids between them — which is where a
+small model gives up. See [The database](#the-database).
 
 ## Prerequisites
 
@@ -240,6 +248,17 @@ compiling the underlying data goes to that project; this port only changes
 the SQL dialect (data types, joins, reserved-word column names) to run on SQL
 Server instead of SQLite.
 
+Three things in `init.sql` are **not** from upstream, and they exist for the
+model rather than for the data: the `episode_detail`, `episode_on_disc` and
+`series_summary` views, plus a `series.abbreviation` column (TOS, TNG, DS9,
+...). DAB exposes the three views as entities alongside the tables. Each one
+collapses a chain of tool calls into a single call — `series_summary`
+precomputes per-series episode and season counts, which `aggregate_records`
+cannot produce on its own because it takes one column with no grouping, so
+"which series has the most episodes?" has nowhere else to come from. The
+tables stay exposed; the system prompt routes to the views and falls back to
+the tables for anything they don't cover.
+
 ## Swapping the model
 
 The app talks to its model through `IChatClient`, so the backend is a config
@@ -284,8 +303,9 @@ to see which tool actually got called before blaming the data.
 
 ## Ideas for extending this
 
-- Expose the pre-made per-series views (`tng`, `voy`, `ds9`, ...) as their own
-  DAB entities for narrower, purpose-built tools
+- Expose the remaining per-series views (`tng`, `voy`, `ds9`, ...) as DAB
+  entities too — the three purpose-built views already exposed
+  (`EpisodeDetail`, `EpisodeOnDisc`, `SeriesSummary`) show the shape
 - Add a "manager" GraphQL/REST role with its own permissions instead of the
   demo's single `anonymous` read-only role
 - Point `OPENAI_ENDPOINT` at Azure OpenAI or any OpenAI-compatible gateway —
