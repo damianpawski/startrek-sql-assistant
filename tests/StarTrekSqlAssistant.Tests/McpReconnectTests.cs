@@ -29,7 +29,7 @@ public class McpReconnectTests
         var tool = ReadRecords(source);
 
         source.Drop();
-        var result = await tool.InvokeAsync(SeriesQuery());
+        var result = await tool.InvokeAsync(SeriesQuery(), TestContext.Current.CancellationToken);
 
         Assert.Contains("Deep Space Nine", result?.ToString());
         Assert.Equal(1, source.InvalidateCount);
@@ -55,7 +55,7 @@ public class McpReconnectTests
         messages.Add(new ChatMessage(ChatRole.User, "When did DS9 start and end?"));
 
         source.Drop();
-        var reply = await agent.AskAsync(messages);
+        var reply = await agent.AskAsync(messages, TestContext.Current.CancellationToken);
 
         Assert.Equal("Deep Space Nine ran from 1993 to 1999.", reply);
 
@@ -79,7 +79,7 @@ public class McpReconnectTests
         source.Drop();
 
         await Assert.ThrowsAsync<McpConnectionLostException>(
-            async () => await tool.InvokeAsync(SeriesQuery()));
+            async () => await tool.InvokeAsync(SeriesQuery(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class McpReconnectTests
         source.Drop();
 
         await Assert.ThrowsAsync<McpConnectionLostException>(
-            async () => await tool.InvokeAsync(SeriesQuery()));
+            async () => await tool.InvokeAsync(SeriesQuery(), TestContext.Current.CancellationToken));
         Assert.Equal(1, source.InvalidateCount); // retried once, not forever
     }
 
@@ -104,8 +104,8 @@ public class McpReconnectTests
         // not discard the replacement the first one just built.
         var source = new FlakyMcpConnectionSource(new FakeDabMcpServer());
 
-        await source.InvalidateAsync(1);
-        await source.InvalidateAsync(1);
+        await source.InvalidateAsync(1, TestContext.Current.CancellationToken);
+        await source.InvalidateAsync(1, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, source.InvalidateCount);
         Assert.Equal(2, source.Generation);
@@ -118,7 +118,7 @@ public class McpReconnectTests
         var source = new FlakyMcpConnectionSource(server);
         var tool = ReadRecords(source);
 
-        await tool.InvokeAsync(SeriesQuery());
+        await tool.InvokeAsync(SeriesQuery(), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, source.InvalidateCount);
         Assert.Equal(1, source.Generation);

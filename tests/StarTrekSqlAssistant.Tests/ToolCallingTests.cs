@@ -34,7 +34,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "When did DS9 premiere?"));
+        var reply = await agent.AskAsync(Ask(agent, "When did DS9 premiere?"), TestContext.Current.CancellationToken);
 
         Assert.Equal("DS9 premiered on 1993-01-03.", reply);
         Assert.Equal("read_records", server.LastCall.Tool);
@@ -55,7 +55,7 @@ public class ToolCallingTests
             .ThenSay("done");
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"));
+        await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"), TestContext.Current.CancellationToken);
 
         Assert.True(server.LastCall.Failed);
         Assert.Contains("full UTC timestamp", server.LastCall.Result);
@@ -89,7 +89,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"));
+        var reply = await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, server.Calls.Count);
         Assert.True(server.Calls[0].Failed);
@@ -110,7 +110,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "Which series is still airing?"));
+        var reply = await agent.AskAsync(Ask(agent, "Which series is still airing?"), TestContext.Current.CancellationToken);
 
         Assert.False(server.LastCall.Failed);
         Assert.Equal("Star Trek: Strange New Worlds", reply);
@@ -125,7 +125,7 @@ public class ToolCallingTests
             .ThenSay("done");
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        await agent.AskAsync(Ask(agent, "List the series with their dates."));
+        await agent.AskAsync(Ask(agent, "List the series with their dates."), TestContext.Current.CancellationToken);
 
         Assert.True(server.LastCall.Failed);
         Assert.Contains("no spaces", server.LastCall.Result);
@@ -148,7 +148,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "How many DS9 episodes are there?"));
+        var reply = await agent.AskAsync(Ask(agent, "How many DS9 episodes are there?"), TestContext.Current.CancellationToken);
 
         Assert.Contains("Expressions are not supported", server.Calls[0].Result);
         Assert.Contains("not numeric", server.Calls[1].Result);
@@ -178,7 +178,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "How many DS9 episodes aired in 1993?"));
+        var reply = await agent.AskAsync(Ask(agent, "How many DS9 episodes aired in 1993?"), TestContext.Current.CancellationToken);
 
         Assert.Single(server.Calls);
         Assert.False(server.LastCall.Failed);
@@ -202,7 +202,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "Which series has the most episodes?"));
+        var reply = await agent.AskAsync(Ask(agent, "Which series has the most episodes?"), TestContext.Current.CancellationToken);
 
         Assert.All(server.Calls, call => Assert.False(call.Failed));
         Assert.Contains("\"max\":178", server.Calls[0].Result);
@@ -230,7 +230,7 @@ public class ToolCallingTests
             });
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        await agent.AskAsync(Ask(agent, "What can you look up?"));
+        await agent.AskAsync(Ask(agent, "What can you look up?"), TestContext.Current.CancellationToken);
 
         Assert.False(server.LastCall.Failed);
     }
@@ -249,7 +249,7 @@ public class ToolCallingTests
         }
 
         var agent = TestAgent.BuildWithToolLoop(client, server);
-        var reply = await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"));
+        var reply = await agent.AskAsync(Ask(agent, "Which series premiered in the 1990s?"), TestContext.Current.CancellationToken);
 
         // MaximumIterationsPerRequest counts tool-executing rounds: the model is
         // asked once more after the last one, and that reply's tool calls are no

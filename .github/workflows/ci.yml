@@ -6,6 +6,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege for GITHUB_TOKEN, set at the top so it applies to every job.
+# Without it the token inherits the repository or organisation default, which
+# can be read-write; nothing here writes to the repo - the build reads code, the
+# tests read code, and the image is built but never pushed. Anything added later
+# that does need to write (publishing a package, commenting on a PR) should widen
+# the scope on that job alone rather than here.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -26,8 +35,10 @@ jobs:
       # No Docker, no SQL Server, no model: every test runs against in-process
       # fakes, which is the point of the IChatClientFactory / IMcpToolProvider
       # seams. If a test here needs a container, it is in the wrong project.
+      # dotnet test runs on Microsoft.Testing.Platform (global.json), so the
+      # TRX report comes from xunit.v3's own reporter, not VSTest's --logger.
       - name: Test
-        run: dotnet test StarTrekSqlMPC-POC.slnx --configuration Release --no-build --logger "trx;LogFileName=results.trx" --results-directory artifacts/test-results
+        run: dotnet test StarTrekSqlMPC-POC.slnx --configuration Release --no-build --report-xunit-trx --report-xunit-trx-filename results.trx --results-directory artifacts/test-results
 
       - name: Upload test results
         if: always()

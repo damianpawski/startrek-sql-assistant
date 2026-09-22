@@ -4,14 +4,23 @@
        Directory.Build.props; package versions from Directory.Packages.props. -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- xunit.v3 test projects are self-hosting executables on
+         Microsoft.Testing.Platform, so there is no Microsoft.NET.Test.Sdk,
+         xunit.runner.visualstudio or coverlet.collector here: all three are
+         VSTest-only and would do nothing.
+
+         All three properties below are load-bearing for `dotnet test`, together
+         with /dotnet.config. Drop any one of them and the SDK falls back to the
+         VSTest path, which finds no adapter and reports "zero tests ran" - or,
+         worse, exits 0 having run nothing, which reads as a green CI. -->
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="bunit" />
-    <PackageReference Include="coverlet.collector" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
   <ItemGroup>

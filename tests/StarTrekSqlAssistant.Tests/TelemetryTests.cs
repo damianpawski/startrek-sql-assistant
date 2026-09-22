@@ -34,7 +34,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenSay("Deep Space Nine ran from 1993 to 1999.");
         var agent = TestAgent.Build(client);
 
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         var span = recorder.Single(AgentTelemetry.QuestionActivity);
         Assert.Equal(AgentTelemetry.Outcomes.Answered, Outcome(span));
@@ -73,7 +73,7 @@ public class TelemetryTests
             ? TestAgent.Build(client, new UnreachableToolProvider())
             : TestAgent.Build(client);
 
-        var reply = await agent.AskAsync(Conversation(agent, "anything"));
+        var reply = await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         Assert.False(string.IsNullOrWhiteSpace(reply)); // still a chat reply, not a throw
         Assert.Equal(expected, Outcome(recorder.Single(AgentTelemetry.QuestionActivity)));
@@ -87,7 +87,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenThrow(new HttpRequestException("Connection refused"));
         var agent = TestAgent.Build(client);
 
-        await agent.AskAsync(Conversation(agent, "anything"));
+        await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         var span = recorder.Single(AgentTelemetry.QuestionActivity);
         Assert.Equal(ActivityStatusCode.Error, span.Status);
@@ -129,7 +129,7 @@ public class TelemetryTests
 
         var tools = new FlakyMcpConnectionSource(server).AsToolProvider(NullLogger.Instance);
         var agent = TestAgent.Build(ChatClientFactory.Wrap(client), tools);
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         var tool = recorder.Single(AgentTelemetry.ToolActivity);
         Assert.Equal("read_records", tool.GetTagItem(AgentTelemetry.Tags.ToolName)?.ToString());
@@ -152,11 +152,11 @@ public class TelemetryTests
         // happened at all.
         using var recorder = new TelemetryRecorder();
         var source = new FlakyMcpConnectionSource(new FakeDabMcpServer());
-        var tool = (AIFunction)(await source.AsToolProvider(NullLogger.Instance).GetToolsAsync())
+        var tool = (AIFunction)(await source.AsToolProvider(NullLogger.Instance).GetToolsAsync(TestContext.Current.CancellationToken))
             .First(t => t.Name == "read_records");
 
         source.Drop();
-        await tool.InvokeAsync(new AIFunctionArguments { ["entity"] = "Series", ["select"] = "title,begin" });
+        await tool.InvokeAsync(new AIFunctionArguments { ["entity"] = "Series", ["select"] = "title,begin" }, TestContext.Current.CancellationToken);
 
         var call = Assert.Single(recorder.Of("startrek.tool.calls"));
         Assert.Equal(AgentTelemetry.Outcomes.Retried, call.Tag(AgentTelemetry.Tags.Outcome));
@@ -168,12 +168,12 @@ public class TelemetryTests
     {
         using var recorder = new TelemetryRecorder();
         var source = new FlakyMcpConnectionSource(new FakeDabMcpServer()) { StaysDead = true };
-        var tool = (AIFunction)(await source.AsToolProvider(NullLogger.Instance).GetToolsAsync())
+        var tool = (AIFunction)(await source.AsToolProvider(NullLogger.Instance).GetToolsAsync(TestContext.Current.CancellationToken))
             .First(t => t.Name == "read_records");
 
         source.Drop();
         await Assert.ThrowsAsync<McpConnectionLostException>(async () =>
-            await tool.InvokeAsync(new AIFunctionArguments { ["entity"] = "Series", ["select"] = "title,begin" }));
+            await tool.InvokeAsync(new AIFunctionArguments { ["entity"] = "Series", ["select"] = "title,begin" }, TestContext.Current.CancellationToken));
 
         var call = Assert.Single(recorder.Of("startrek.tool.calls"));
         Assert.Equal(AgentTelemetry.Outcomes.ConnectionLost, call.Tag(AgentTelemetry.Tags.Outcome));
@@ -191,7 +191,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenSay("42 episodes.");
         var agent = TestAgent.Build(client);
 
-        await agent.AskAsync(Conversation(agent, "How many?"));
+        await agent.AskAsync(Conversation(agent, "How many?"), TestContext.Current.CancellationToken);
 
         // +1 first, -1 second: the order is the whole point - incrementing after
         // the model call would leave the gauge at zero for exactly the minutes
@@ -208,7 +208,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenThrow(new HttpRequestException("Connection refused"));
         var agent = TestAgent.Build(client);
 
-        await agent.AskAsync(Conversation(agent, "anything"));
+        await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, recorder.Of("startrek.questions.active").Sum(m => m.Value));
     }
@@ -225,7 +225,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenSay("An answer.");
         var agent = TestAgent.Build(client, logger: logger);
 
-        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret));
+        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret), TestContext.Current.CancellationToken);
 
         Assert.Contains(logger.Messages, m => m.StartsWith("Question received"));
         Assert.DoesNotContain(logger.Messages, m => m.Contains(Secret));
@@ -246,7 +246,7 @@ public class TelemetryTests
             .ThenSay("An answer mentioning " + Secret);
 
         var agent = TestAgent.Build(ChatClientFactory.Wrap(client), server.AsToolProvider());
-        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret));
+        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret), TestContext.Current.CancellationToken);
 
         var tags = recorder.Activities.SelectMany(a => a.TagObjects).Select(t => t.Value?.ToString());
         Assert.DoesNotContain(tags, value => value?.Contains(Secret) == true);
@@ -269,7 +269,7 @@ public class TelemetryTests
         using var client = new ScriptedChatClient().ThenSay("An answer mentioning " + Secret);
         var agent = TestAgent.Build(ChatClientFactory.Wrap(client, captureMessageContent: true));
 
-        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret));
+        await agent.AskAsync(Conversation(agent, "A question mentioning " + Secret), TestContext.Current.CancellationToken);
 
         var recorded = recorder.Activities
             .SelectMany(a => a.TagObjects.Select(t => t.Value?.ToString())

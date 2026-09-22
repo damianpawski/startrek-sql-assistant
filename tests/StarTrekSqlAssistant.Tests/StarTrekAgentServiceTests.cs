@@ -38,7 +38,7 @@ public class StarTrekAgentServiceTests
         using var client = new ScriptedChatClient().ThenSay("Deep Space Nine ran from 1993 to 1999.");
         var agent = TestAgent.Build(client);
 
-        var reply = await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        var reply = await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         Assert.Equal("Deep Space Nine ran from 1993 to 1999.", reply);
     }
@@ -53,7 +53,7 @@ public class StarTrekAgentServiceTests
         var messages = Conversation(agent, "How many?");
         var before = messages.Count;
 
-        await agent.AskAsync(messages);
+        await agent.AskAsync(messages, TestContext.Current.CancellationToken);
 
         Assert.Equal(before, messages.Count);
         Assert.Equal(ChatRole.User, messages[^1].Role);
@@ -67,7 +67,7 @@ public class StarTrekAgentServiceTests
         var agent = TestAgent.Build(client, server.AsToolProvider());
         var messages = Conversation(agent, "Which series premiered in the 1990s?");
 
-        await agent.AskAsync(messages);
+        await agent.AskAsync(messages, TestContext.Current.CancellationToken);
 
         var sent = Assert.Single(client.ReceivedConversations);
         Assert.Equal([ChatRole.System, ChatRole.User], sent.Select(m => m.Role));
@@ -84,7 +84,7 @@ public class StarTrekAgentServiceTests
         using var client = new ScriptedChatClient();
         var agent = TestAgent.Build(client, new UnreachableToolProvider());
 
-        var reply = await agent.AskAsync(Conversation(agent, "anything"));
+        var reply = await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         Assert.Contains("can't reach the database connector", reply);
         Assert.Equal(0, client.CallCount); // never bothered the model
@@ -98,7 +98,7 @@ public class StarTrekAgentServiceTests
         using var client = new ScriptedChatClient().ThenSayNothing();
         var agent = TestAgent.Build(client);
 
-        var reply = await agent.AskAsync(Conversation(agent, "something hard"));
+        var reply = await agent.AskAsync(Conversation(agent, "something hard"), TestContext.Current.CancellationToken);
 
         Assert.Contains($"{ChatClientFactory.MaxToolRounds} database lookups", reply);
     }
@@ -111,7 +111,7 @@ public class StarTrekAgentServiceTests
         using var client = new ScriptedChatClient().ThenThrow(new TaskCanceledException("The request was canceled due to timeout."));
         var agent = TestAgent.Build(client, timeoutSeconds: 600);
 
-        var reply = await agent.AskAsync(Conversation(agent, "slow question"));
+        var reply = await agent.AskAsync(Conversation(agent, "slow question"), TestContext.Current.CancellationToken);
 
         Assert.Contains("600 seconds", reply);
         Assert.Contains("TimeoutSeconds", reply);
@@ -123,7 +123,7 @@ public class StarTrekAgentServiceTests
         using var client = new ScriptedChatClient().ThenThrow(new HttpRequestException("Connection refused (localhost:11434)"));
         var agent = TestAgent.Build(client);
 
-        var reply = await agent.AskAsync(Conversation(agent, "anything"));
+        var reply = await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         Assert.Contains("error talking to the model", reply);
     }
@@ -139,7 +139,7 @@ public class StarTrekAgentServiceTests
             .ThenThrow(new McpConnectionLostException("Tool 'read_records' failed again on a fresh connection."));
         var agent = TestAgent.Build(client);
 
-        var reply = await agent.AskAsync(Conversation(agent, "anything"));
+        var reply = await agent.AskAsync(Conversation(agent, "anything"), TestContext.Current.CancellationToken);
 
         Assert.Contains("lost the connection to the database connector", reply);
         Assert.DoesNotContain("Ollama", reply);

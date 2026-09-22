@@ -118,8 +118,8 @@ public class RateLimitingTests
         using var limiter = TestAgent.Limited(questionsPerMinute: 1);
         var agent = TestAgent.Build(client, limiter: limiter);
 
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
-        var reply = await agent.AskAsync(Conversation(agent, "And Voyager?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
+        var reply = await agent.AskAsync(Conversation(agent, "And Voyager?"), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, client.CallCount);
         Assert.Contains("at most 1 questions a minute", reply);
@@ -137,7 +137,7 @@ public class RateLimitingTests
         // Another circuit's question, still in progress.
         using var running = limiter.TryAdmit();
 
-        var reply = await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        var reply = await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, client.CallCount);
         Assert.Contains("one at a time", reply);
@@ -164,7 +164,7 @@ public class RateLimitingTests
             held.Dispose();
         }
 
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         var span = recorder.Single(AgentTelemetry.QuestionActivity);
         Assert.Equal(expected, span.GetTagItem(AgentTelemetry.Tags.Outcome)?.ToString());
@@ -185,7 +185,7 @@ public class RateLimitingTests
         var agent = TestAgent.Build(client, limiter: limiter);
 
         using var running = limiter.TryAdmit();
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         Assert.Empty(recorder.Of("startrek.questions.active"));
     }
@@ -201,7 +201,7 @@ public class RateLimitingTests
         var agent = TestAgent.Build(client, logger: logger, limiter: limiter);
 
         using var running = limiter.TryAdmit();
-        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"));
+        await agent.AskAsync(Conversation(agent, "When did DS9 start and end?"), TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain(logger.Messages, message => message.Contains("asking", StringComparison.Ordinal));
         Assert.Contains(logger.Messages, message => message.Contains("turned away", StringComparison.Ordinal));
