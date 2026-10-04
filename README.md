@@ -94,7 +94,39 @@ connection to DAB directly, so you can tell "still starting" from "actually
 broken" without going through the chat box.
 
 Restarting DAB under a running app is fine: the app notices the dropped
-connection on the next tool call, reconnects and answers anyway.
+connection on the next tool call, reconnects and answers anyway. You can watch
+that happen. `/health` returns JSON, and the number to watch is `generation` —
+how many times the MCP connection has been built since the app started:
+
+```console
+$ curl -s localhost:8080/health
+{"status":"Healthy","checks":{"dab-mcp":{"status":"Healthy",
+ "description":"Connected to the DAB MCP server; 7 tools available.",
+ "data":{"endpoint":"http://dab:5000/mcp","generation":1,"tools":7}}}}
+
+$ docker compose restart dab        # ...then ask another question in the UI
+
+$ curl -s localhost:8080/health     # generation is now 2
+```
+
+That endpoint reports JSON because of a bug this project had and fixed: the
+health check was collecting the endpoint, the tool count and the generation
+into its `data` dictionary, but ASP.NET's **default health response writer
+emits only the overall status** and silently discards everything else. `curl`
+returned the single word `Healthy`, so the one number that proves the reconnect
+worked was computed on every request and thrown away — leaving `grep` over the
+app log as the only way to see it. `Services/HealthResponse.cs` is a response
+writer that serialises the data too, and deliberately never serialises the
+exception: the description already carries its message, and `/health` is
+pollable by anything that can reach the app.
+
+One thing it will not tell you: whether DAB is up *right now*. The check reads
+the connection state the app already has and never dials DAB, because a probe
+that opened a connection would hang for the connect timeout at exactly the
+moment DAB is down — which is the moment a probe has to answer fast. So a
+stopped DAB still reads `Healthy` until something actually tries to use the
+connection. It answers "what happened the last time this app talked to DAB",
+not "is DAB alive".
 
 ### Watching it work
 

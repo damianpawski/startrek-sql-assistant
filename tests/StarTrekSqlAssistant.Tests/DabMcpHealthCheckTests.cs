@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using StarTrekSqlAssistant.Web.Services;
 
@@ -52,5 +53,69 @@ public class DabMcpHealthCheckTests
         Assert.Equal(HealthStatus.Unhealthy, result.Status);
         Assert.Contains("Connection refused", result.Description);
         Assert.Same(failure, result.Exception);
+    }
+
+    // ---- What /health actually returns ------------------------------------
+    //
+    // The checks above assert what DabMcpHealthCheck computes. These assert
+    // that it survives the trip to the wire: the framework's default response
+    // writer emits the status and drops every check's data, so all of the above
+    // was unreadable from outside until HealthResponse existed.
+
+    private static async Task<JsonElement> Body(IMcpConnectionState state)
+    {
+        var result = await Check(state);
+        var report = new HealthReport(
+            new Dictionary<string, HealthReportEntry>
+            {
+                ["dab-mcp"] = new(result.Status, result.Description, TimeSpan.Zero, result.Exception, result.Data),
+            },
+            TimeSpan.Zero);
+
+        return JsonDocument.Parse(HealthResponse.Serialize(report)).RootElement;
+    }
+
+    [Fact]
+    public async Task The_response_carries_the_connection_generation()
+    {
+        // The number that says whether the MCP connection has been rebuilt.
+        // Watching it go 1 -> 2 after `docker compose restart dab` is the
+        // cheapest proof ReconnectingMcpTool did its job.
+        var body = await Body(new State(Connected: true, Generation: 2, ToolCount: 7, LastFailure: null));
+
+        Assert.Equal("Healthy", body.GetProperty("status").GetString());
+
+        var check = body.GetProperty("checks").GetProperty("dab-mcp");
+        Assert.Equal("Healthy", check.GetProperty("status").GetString());
+        Assert.Equal(2, check.GetProperty("data").GetProperty("generation").GetInt32());
+        Assert.Equal(7, check.GetProperty("data").GetProperty("tools").GetInt32());
+        Assert.Equal("http://dab:5000/mcp", check.GetProperty("data").GetProperty("endpoint").GetString());
+    }
+
+    [Fact]
+    public async Task The_response_says_why_a_failed_connect_failed()
+    {
+        var body = await Body(new State(
+            Connected: false, Generation: 0, ToolCount: 0,
+            LastFailure: new HttpRequestException("Connection refused (dab:5000)")));
+
+        var check = body.GetProperty("checks").GetProperty("dab-mcp");
+        Assert.Equal("Unhealthy", check.GetProperty("status").GetString());
+        Assert.Contains("Connection refused", check.GetProperty("description").GetString()!);
+    }
+
+    [Fact]
+    public async Task The_response_never_carries_a_stack_trace()
+    {
+        // /health is pollable by anything that can reach the app. The
+        // description carries the exception's message, which is the useful
+        // part; the stack trace is not something to hand out.
+        var body = await Body(new State(
+            Connected: false, Generation: 0, ToolCount: 0,
+            LastFailure: new HttpRequestException("Connection refused (dab:5000)")));
+
+        var json = body.GetRawText();
+        Assert.DoesNotContain("stackTrace", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HttpRequestException", json, StringComparison.Ordinal);
     }
 }

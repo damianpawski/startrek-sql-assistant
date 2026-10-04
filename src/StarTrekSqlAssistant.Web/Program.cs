@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using OpenTelemetry;
@@ -195,7 +196,12 @@ app.MapStaticAssets();
 // Liveness for the one dependency that can drop out from under a running app:
 // the MCP connection to DAB. Reads cached state only, so it answers instantly
 // even when DAB is down.
-app.MapHealthChecks("/health");
+//
+// The response writer is not optional decoration. The default one emits the
+// overall status and discards every check's data, which made DabMcpHealthCheck
+// collect an endpoint, a tool count and a connection generation that nobody
+// could read - see HealthResponse.
+app.MapHealthChecks("/health", new HealthCheckOptions { ResponseWriter = HealthResponse.WriteAsync });
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
