@@ -335,6 +335,43 @@ to see which tool actually got called before blaming the data.
 
 ## Ideas for extending this
 
+- **Generate the schema half of the system prompt instead of writing it.**
+  Right now the column lists in `Services/StarTrekPrompt.cs` are typed by hand
+  and kept honest by `SystemPromptTests`, which fails the build if they drift
+  from `dab-config.json` or `init.sql`. That works, but the database already
+  knows its own columns, so a human shouldn't be retyping them.
+
+  The obvious fix — move the columns into the DAB entity `description` fields —
+  is the wrong one, for two measured reasons. DAB's MCP `describe_entities`
+  returns `"fields": []` for every entity (still true in 2.0.9), so the model
+  cannot read a schema from the tool surface at all; and an entity description
+  only reaches the model *through* `describe_entities`, never in `tools/list`.
+  The model would have to spend a tool round trip, every question, to learn
+  what the system prompt gives it for free before it does anything — against a
+  `MaxToolRounds` budget of 6 and a 5-questions-a-minute cap.
+
+  The route that works is `GET /api/openapi`. DAB serves the full REST schema
+  there — every entity, every column, its type, and the entity description —
+  including the views:
+
+  ```
+  Series        -> series_id, title, abbreviation, begin, end
+  SeriesSummary -> ... episode_count, season_count, run_days, first_airdate ...
+  ```
+
+  So the schema section of the prompt could be composed at startup from that
+  document, leaving only the hand-written half: the tool-behaviour rules
+  (`aggregate_records` takes one column and no expressions, date filters need
+  bare UTC timestamps, titles use the curly `’`, route cross-table questions to
+  the views). None of those are derivable from a schema.
+
+  That endpoint survives `runtime.host.mode: production` — verified; only the
+  GraphQL IDE 404s there — so this isn't a trick that works only in the demo
+  configuration.
+
+  Not done here because it trades a tested three-file edit for a startup
+  dependency on DAB plus a fallback for the first question asked before DAB is
+  warm, and the schema has changed twice in the life of the project.
 - Expose the remaining per-series views (`tng`, `voy`, `ds9`, ...) as DAB
   entities too — the three purpose-built views already exposed
   (`EpisodeDetail`, `EpisodeOnDisc`, `SeriesSummary`) show the shape
